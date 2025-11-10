@@ -1,13 +1,8 @@
 // ld2030/v1/map-gen.js
 // Pure, deterministic map generator (no Firebase/Express).
 
-// --- Tiles (exported so other modules can reuse) ---
-const TILES = {
-  EMPTY: '0',
-  ROAD:  '1',
-  BUILD: '2',
-  LAB:   '3',
-};
+// Shared game config (tile codes, etc.)
+const { TILES } = require('../game-config');
 
 // Tiny seeded PRNG
 function mulberry32(seed) {
