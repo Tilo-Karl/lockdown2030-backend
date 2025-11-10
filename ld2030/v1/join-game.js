@@ -18,7 +18,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
     return { x: 0, y: 0 }; // fallback
   }
 
-  app.post(`${BASE}/join`, async (req, res) => {
+  app.post(`${BASE}/join-game`, async (req, res) => {
     try {
       const { gameId = 'lockdown2030', uid, displayName } = req.body || {};
       if (!gameId || !uid)
