@@ -2,7 +2,7 @@
 // Pure, deterministic map generator (no Firebase/Express).
 
 // Shared game config (tile codes, etc.)
-const { TILES } = require('../game-config');
+const { TILES } = require('./game-config');
 
 // Tiny seeded PRNG
 function mulberry32(seed) {
