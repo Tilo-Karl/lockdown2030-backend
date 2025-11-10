@@ -1,4 +1,8 @@
+// ld2030/v1/join-game.js
 // Mounts POST /api/ld2030/v1/join-game
+
+const { GRID, PLAYER } = require('./game-config');
+
 module.exports = function registerJoinGame(app, { db, admin, state, base }) {
   const BASE = base || '/api/ld2030/v1';
 
@@ -30,8 +34,10 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
         if (!gDoc.exists) throw new Error('game_not_found');
 
         const g = gDoc.data() || {};
-        const w = g.gridsize?.w ?? g.w ?? 32;
-        const h = g.gridsize?.h ?? g.h ?? 32;
+
+        // Use grid from game doc, fall back to config defaults
+        const w = g.gridsize?.w ?? g.w ?? GRID.DEFAULT_W;
+        const h = g.gridsize?.h ?? g.h ?? GRID.DEFAULT_H;
 
         const pRef = state.playersCol(gameId).doc(uid);
         const pDoc = await tx.get(pRef);
@@ -48,7 +54,12 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
               },
               { merge: true }
             );
-            return { x: p.pos.x, y: p.pos.y, hp: p.hp ?? 100, ap: p.ap ?? 3 };
+            return {
+              x: p.pos.x,
+              y: p.pos.y,
+              hp: p.hp ?? PLAYER.START_HP,
+              ap: p.ap ?? PLAYER.START_AP,
+            };
           }
         }
 
@@ -58,8 +69,8 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
           userId: uid,
           displayName: displayName ?? 'Player',
           pos: spawn,
-          hp: 100,
-          ap: 3,
+          hp: PLAYER.START_HP,
+          ap: PLAYER.START_AP,
           alive: true,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
@@ -72,7 +83,12 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
           { merge: true }
         );
 
-        return { x: spawn.x, y: spawn.y, hp: 100, ap: 3 };
+        return {
+          x: spawn.x,
+          y: spawn.y,
+          hp: PLAYER.START_HP,
+          ap: PLAYER.START_AP,
+        };
       });
 
       console.log(`[join] Player ${uid} joined game ${gameId}`);
