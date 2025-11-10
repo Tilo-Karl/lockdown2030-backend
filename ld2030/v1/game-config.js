@@ -16,8 +16,8 @@ const TILES = {
 
 // --- Grid settings ---
 const GRID = {
-  DEFAULT_W: 32,
-  DEFAULT_H: 32,
+  DEFAULT_W: 12,
+  DEFAULT_H: 12,
   PRESETS: [
     { w: 12, h: 12 },
     { w: 16, h: 16 },
