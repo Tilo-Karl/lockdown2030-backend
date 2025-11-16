@@ -34,6 +34,7 @@ const GRID = {
 
 // --- Map generation parameters ---
 const MAP = {
+  DEFAULT_ID: 'world-1',
   DEFAULT_BUILDING_CHANCE: 0.18,
   DEFAULT_MIN_LAB_DISTANCE: 6,
   BUILDING_TYPES: ['BUILD', 'RESTAURANT', 'POLICE', 'MALL'],
