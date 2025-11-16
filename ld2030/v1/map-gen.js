@@ -2,7 +2,7 @@
 // Pure, deterministic map generator (no Firebase/Express).
 
 // Shared game config (tile codes, etc.)
-const { TILES } = require('./game-config');
+const { TILES, MAP } = require('./game-config');
 
 // Tiny seeded PRNG
 function mulberry32(seed) {
@@ -37,6 +37,8 @@ function extractBuildings(rows, w, h, BUILD_CH, rnd) {
     [0, 1],
     [0, -1],
   ];
+  // High-level building categories for metadata; fall back to a single generic type
+  const buildingTypes = (MAP && MAP.BUILDING_TYPES) || ['BUILD'];
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
@@ -77,9 +79,13 @@ function extractBuildings(rows, w, h, BUILD_CH, rnd) {
       const maxFloors = 3;
       const floors = minFloors + Math.floor(rnd() * (maxFloors - minFloors + 1));
 
+      // Deterministic high-level building type label (e.g. BUILD / RESTAURANT / POLICE / MALL)
+      const typeIndex = Math.floor(rnd() * buildingTypes.length);
+      const type = buildingTypes[typeIndex] || 'BUILD';
+
       buildings.push({
         id: `b${buildings.length}`,
-        type: 'generic',
+        type,
         root,
         tiles: tiles.length,
         floors,
