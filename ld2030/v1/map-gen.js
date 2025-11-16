@@ -25,6 +25,71 @@ function manhattan(a, b) {
   return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
 }
 
+// Scan the grid for contiguous building regions and generate simple building metadata.
+// For now we treat any connected cluster of BUILD tiles as a single building and
+// assign a random floor count in a small range (deterministic via rnd).
+function extractBuildings(rows, w, h, BUILD_CH, rnd) {
+  const visited = Array.from({ length: h }, () => Array.from({ length: w }, () => false));
+  const buildings = [];
+  const dirs = [
+    [1, 0],
+    [-1, 0],
+    [0, 1],
+    [0, -1],
+  ];
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (rows[y][x] !== BUILD_CH || visited[y][x]) continue;
+
+      // Flood fill to get all tiles belonging to this building
+      const queue = [{ x, y }];
+      visited[y][x] = true;
+      const tiles = [];
+
+      while (queue.length > 0) {
+        const { x: cx, y: cy } = queue.shift();
+        tiles.push({ x: cx, y: cy });
+
+        for (const [dx, dy] of dirs) {
+          const nx = cx + dx;
+          const ny = cy + dy;
+          if (nx < 0 || nx >= w || ny < 0 || ny >= h) continue;
+          if (visited[ny][nx]) continue;
+          if (rows[ny][nx] !== BUILD_CH) continue;
+          visited[ny][nx] = true;
+          queue.push({ x: nx, y: ny });
+        }
+      }
+
+      if (tiles.length === 0) continue;
+
+      // Deterministic "root" tile (top-most, then left-most)
+      let root = tiles[0];
+      for (const t of tiles) {
+        if (t.y < root.y || (t.y === root.y && t.x < root.x)) {
+          root = t;
+        }
+      }
+
+      // Simple deterministic floors: between 1 and 3
+      const minFloors = 1;
+      const maxFloors = 3;
+      const floors = minFloors + Math.floor(rnd() * (maxFloors - minFloors + 1));
+
+      buildings.push({
+        id: `b${buildings.length}`,
+        type: 'generic',
+        root,
+        tiles: tiles.length,
+        floors,
+      });
+    }
+  }
+
+  return buildings;
+}
+
 /**
  * Generate a simple city map with:
  * - Cross roads (center row/col)
@@ -81,6 +146,9 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
       }
     }
   }
+  
+  // Derive simple building metadata from the finished grid.
+  const buildings = extractBuildings(rows, w, h, B, rnd);
 
   return {
     seed, w, h,
@@ -99,6 +167,7 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
         safeRadiusFromLab: 2,     // optional UI/logic hint
       },
       params: { buildingChance, minLabDistance },
+      buildings,                  // [{id, type, root:{x,y}, tiles, floors}]
     },
   };
 }
