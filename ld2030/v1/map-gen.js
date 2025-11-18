@@ -43,7 +43,7 @@ function manhattan(a, b) {
  */
 function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) {
   const rnd = mulberry32(seed | 0);
-  const E = TILES.EMPTY, R = TILES.ROAD, B = TILES.BUILD, L = TILES.LAB;
+  const E = TILES.EMPTY, R = TILES.ROAD, B = TILES.BUILD;
 
   // base grid
   const rows = Array.from({ length: h }, () => Array.from({ length: w }, () => E));
@@ -61,22 +61,20 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
     }
   }
 
-  // place exactly one lab (on empty, not on road/building) and away from center
+  // Pick a "lab" location on a building tile, away from center, without changing the tile char.
   let lab = null;
   for (let i = 0; i < 2000 && !lab; i++) {
     const lx = Math.floor(rnd() * w);
     const ly = Math.floor(rnd() * h);
-    if (rows[ly][lx] !== E) continue;
+    if (rows[ly][lx] !== B) continue;
     if (manhattan({ x: lx, y: ly }, { x: cx, y: cy }) < minLabDistance) continue;
-    rows[ly][lx] = L;
     lab = { x: lx, y: ly };
   }
   if (!lab) {
-    // fallback: bottom-right most distant empty spot
+    // fallback: bottom-right most building tile
     for (let y = h - 1; y >= 0 && !lab; y--) {
       for (let x = w - 1; x >= 0 && !lab; x--) {
-        if (rows[y][x] === E) {
-          rows[y][x] = L;
+        if (rows[y][x] === B) {
           lab = { x, y };
         }
       }
@@ -89,7 +87,7 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
   return {
     seed, w, h,
     encoding: 'rows',
-    legend: { '0': 'empty', '1': 'road', '2': 'building', '3': 'lab' },
+    legend: { '0': 'empty', '1': 'road', '2': 'building' },
     // compact payload for Firestore
     data: rows.map(r => r.join('')),
     // extra meta for engine logic (non-breaking additions)
@@ -99,11 +97,12 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
       center: { x: cx, y: cy },
       passableChars: [E, R],      // what the engine should treat as walkable
       spawn: {
-        avoidChars: [B, L],       // don’t spawn on buildings/lab
+        avoidChars: [B],          // don’t spawn on buildings
         safeRadiusFromLab: 2,     // optional UI/logic hint
       },
       params: { buildingChance, minLabDistance },
       buildings,                  // [{id, type, root:{x,y}, tiles, floors}]
+      buildingPalette: MAP.BUILDING_PALETTE,
     },
   };
 }

@@ -2,16 +2,13 @@
 // Centralized constants for Lockdown 2030 backend
 
 // --- Tiles (used by map-gen and gameplay logic) ---
+// Tiles represent terrain / movement, not specific building types.
+// Buildings (HOUSE, SHOP, LAB, etc.) sit on top of GROUND tiles.
 const TILES = {
-  EMPTY: '0',
-  ROAD: '1',
-  BUILD: '2',
-  LAB: '3',
-  RESTAURANT: '4',
-  POLICE: '5',
-  MALL: '6',
-  PARK: '7',
-  WATER: '8',
+  GROUND:  '0', // default walkable land (where buildings live)
+  ROAD:    '1', // walkable, cheaper AP
+  WATER:   '2', // swim / high AP cost or blocked for some units
+  BLOCKED: '3', // cliffs, walls, ruins: not walkable
 };
 
 // --- Grid settings ---
@@ -92,8 +89,11 @@ const MAP = {
     HQ: '#7C3AED',           // indigo/violet
   },
 
-  NATURAL_TILES: ['PARK', 'WATER'],
-  SPAWN_AVOID: ['BUILD', 'LAB', 'WATER'],
+  // Tiles treated as "natural" / non-urban for simple heuristics.
+  NATURAL_TILES: ['WATER'],
+
+  // Tiles where we never spawn players directly (can refine later with building rules).
+  SPAWN_AVOID: ['WATER', 'BLOCKED'],
 };
 
 // --- Player parameters ---
