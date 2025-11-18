@@ -18,8 +18,8 @@ function mulberry32(seed) {
 
 // Passability helpers
 function isPassableChar(ch) {
-  // roads + empty are passable by default
-  return ch === TILES.EMPTY || ch === TILES.ROAD;
+  // roads + ground are passable by default
+  return ch === TILES.GROUND || ch === TILES.ROAD;
 }
 
 function manhattan(a, b) {
@@ -43,10 +43,10 @@ function manhattan(a, b) {
  */
 function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) {
   const rnd = mulberry32(seed | 0);
-  const E = TILES.EMPTY, R = TILES.ROAD, B = TILES.BUILD;
+  const G = TILES.GROUND, R = TILES.ROAD, B = TILES.BUILD;
 
   // base grid
-  const rows = Array.from({ length: h }, () => Array.from({ length: w }, () => E));
+  const rows = Array.from({ length: h }, () => Array.from({ length: w }, () => G));
 
   // cross-road through center
   const cx = Math.floor(w / 2);
@@ -57,7 +57,7 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
   // scatter buildings (never overwrite roads)
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (rows[y][x] === E && rnd() < buildingChance) rows[y][x] = B;
+      if (rows[y][x] === G && rnd() < buildingChance) rows[y][x] = B;
     }
   }
 
@@ -87,7 +87,7 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
   return {
     seed, w, h,
     encoding: 'rows',
-    legend: { '0': 'empty', '1': 'road', '2': 'building' },
+    legend: { '0': 'ground', '1': 'road', '2': 'building' },
     // compact payload for Firestore
     data: rows.map(r => r.join('')),
     // extra meta for engine logic (non-breaking additions)
@@ -95,7 +95,7 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
       version: 1,
       lab,                        // {x,y}
       center: { x: cx, y: cy },
-      passableChars: [E, R],      // what the engine should treat as walkable
+      passableChars: [G, R],      // what the engine should treat as walkable
       spawn: {
         avoidChars: [B],          // don’t spawn on buildings
         safeRadiusFromLab: 2,     // optional UI/logic hint
