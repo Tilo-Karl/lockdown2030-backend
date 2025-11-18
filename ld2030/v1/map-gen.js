@@ -123,12 +123,12 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
     h,
     encoding: 'rows',
     legend: {
-      [R]: 'road',
-      [B]: 'build',
-      [P]: 'park',
-      [F]: 'forest',
-      [W]: 'water',
-      [X]: 'blocked',
+      [TILES.ROAD]: 'road',
+      [TILES.BUILD]: 'build',
+      [TILES.PARK]: 'park',
+      [TILES.FOREST]: 'forest',
+      [TILES.WATER]: 'water',
+      [TILES.BLOCKED]: 'blocked',
     },
     // Compact payload for Firestore
     data: rows.map((r) => r.join('')),
