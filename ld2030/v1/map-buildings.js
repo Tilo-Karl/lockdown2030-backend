@@ -65,11 +65,23 @@ function extractBuildings(rows, w, h, BUILD_CH, rnd) {
         }
       }
 
-      // Simple deterministic floors: between 1 and 3 (same behavior as before)
-      const minFloors = 1;
-      const maxFloors = 3;
-      const floors =
-        minFloors + Math.floor(rnd() * (maxFloors - minFloors + 1));
+      // Probabilistic floors: start at 1, then add floors with decreasing probability
+      let floors = 1;
+
+      // 40% chance to get floor 2
+      if (rnd() < 0.40) {
+        floors = 2;
+
+        // 25% chance to get floor 3
+        if (rnd() < 0.25) {
+          floors = 3;
+
+          // 10% chance to get floor 4
+          if (rnd() < 0.10) {
+            floors = 4;
+          }
+        }
+      }
 
       // Deterministic high-level building type label (e.g. BUILD / RESTAURANT / POLICE / MALL)
       const typeIndex = Math.floor(rnd() * buildingTypes.length);
