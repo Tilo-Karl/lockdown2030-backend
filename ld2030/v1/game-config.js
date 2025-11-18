@@ -37,7 +37,56 @@ const MAP = {
   DEFAULT_ID: 'world-1',
   DEFAULT_BUILDING_CHANCE: 0.18,
   DEFAULT_MIN_LAB_DISTANCE: 6,
-  BUILDING_TYPES: ['BUILD', 'RESTAURANT', 'POLICE', 'MALL'],
+  BUILDING_TYPES: [
+  BUILDING_PALETTE: {
+    // Common civilian buildings
+    HOUSE: '#F97316',        // orange-ish
+    APARTMENT: '#4B5563',    // dark gray
+    SHOP: '#FACC15',         // yellow
+    RESTAURANT: '#EF4444',   // red
+    OFFICE: '#6B7280',       // slate gray
+    WAREHOUSE: '#92400E',    // brown
+    PARKING: '#9CA3AF',      // light gray
+
+    // Services / public buildings
+    CLINIC: '#A855F7',       // purple
+    HOSPITAL: '#EC4899',     // pink
+    PHARMACY: '#22C55E',     // green
+    SCHOOL: '#0EA5E9',       // cyan
+    POLICE: '#3B82F6',       // blue
+    FIRE_STATION: '#DC2626', // bright red
+    GAS_STATION: '#F97316',  // reuse orange
+
+    // Faction / special locations
+    SAFEHOUSE: '#22C55E',    // emerald
+    OUTPOST: '#F59E0B',      // amber
+    BUNKER: '#4B5563',       // dark gray
+    HQ: '#7C3AED',           // indigo/violet
+  },
+    // Common civilian buildings (more frequent)
+    'HOUSE', 'HOUSE', 'HOUSE', 'HOUSE', 'HOUSE',          // weight 5
+    'APARTMENT', 'APARTMENT', 'APARTMENT',                // weight 3
+    'SHOP', 'SHOP', 'SHOP', 'SHOP',                       // replaces MALL, weight 4
+    'RESTAURANT', 'RESTAURANT', 'RESTAURANT',             // weight 3
+    'OFFICE', 'OFFICE',                                   // weight 2
+    'WAREHOUSE', 'WAREHOUSE',                             // weight 2
+    'PARKING',                                            // weight 1
+
+    // Services / public buildings
+    'CLINIC', 'CLINIC',                                   // weight 2
+    'HOSPITAL',                                           // weight 1
+    'PHARMACY',                                           // weight 1
+    'SCHOOL', 'SCHOOL',                                   // weight 2
+    'POLICE', 'POLICE',                                   // keep police, weight 2
+    'FIRE_STATION',                                       // weight 1
+    'GAS_STATION',                                        // weight 1
+
+    // Faction-flavored locations / bases
+    'SAFEHOUSE', 'SAFEHOUSE',                             // weight 2
+    'OUTPOST',                                            // weight 1
+    'BUNKER',                                             // weight 1
+    'HQ',                                                 // generic faction HQ, weight 1
+  ],
   NATURAL_TILES: ['PARK', 'WATER'],
   SPAWN_AVOID: ['BUILD', 'LAB', 'WATER'],
 };
