@@ -37,7 +37,7 @@ module.exports = function makeState(db, admin) {
     let mapDoc = null;
     if (shouldWriteMap) {
       mapDoc = generateMap({ seed, w, h });
-      batch.set(mRef, mapDoc, { merge: true });
+      batch.set(mRef, mapDoc);
     }
 
     // Always (re)stamp game metadata so you see a change
