@@ -13,8 +13,16 @@ const TILES = {
 
 // --- Grid settings ---
 const GRID = {
+  // Hard bounds the backend will accept
+  MIN_W: 8,
+  MIN_H: 8,
+  MAX_W: 64,
+  MAX_H: 64,
+
+  // Default size the init endpoint will use
   DEFAULT_W: 12,
   DEFAULT_H: 12,
+
   PRESETS: [
     { w: 12, h: 12 },
     { w: 16, h: 16 },
