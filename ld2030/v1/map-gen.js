@@ -18,8 +18,13 @@ function mulberry32(seed) {
 
 // Passability helpers
 function isPassableChar(ch) {
-  // roads + ground are passable by default
-  return ch === TILES.GROUND || ch === TILES.ROAD;
+  // Roads + most land tiles are passable by default; water/blocked are not.
+  return (
+    ch === TILES.ROAD ||
+    ch === TILES.BUILD ||
+    ch === TILES.PARK ||
+    ch === TILES.FOREST
+  );
 }
 
 function manhattan(a, b) {
@@ -29,8 +34,8 @@ function manhattan(a, b) {
 /**
  * Generate a simple city map with:
  * - Cross roads (center row/col)
- * - Random buildings
- * - Exactly one LAB placed away from center
+ * - Random buildings on BUILD tiles
+ * - Exactly one LAB coordinate picked on a BUILD tile (no special tile char)
  *
  * Returns rows encoded as strings for compact storage + meta for spawn rules.
  *
@@ -43,25 +48,48 @@ function manhattan(a, b) {
  */
 function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) {
   const rnd = mulberry32(seed | 0);
-  const G = TILES.GROUND, R = TILES.ROAD, B = TILES.BUILD;
 
-  // base grid
-  const rows = Array.from({ length: h }, () => Array.from({ length: w }, () => G));
+  const R = TILES.ROAD;
+  const B = TILES.BUILD;
+  const P = TILES.PARK;
+  const F = TILES.FOREST;
+  const W = TILES.WATER;
+  const X = TILES.BLOCKED;
 
-  // cross-road through center
+  // Base grid: start as PARK everywhere (generic open land).
+  const rows = Array.from({ length: h }, () =>
+    Array.from({ length: w }, () => P)
+  );
+
+  // Cross-road through center
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
   for (let x = 0; x < w; x++) rows[cy][x] = R;
   for (let y = 0; y < h; y++) rows[y][cx] = R;
 
-  // scatter buildings (never overwrite roads)
+  // Scatter buildings and other terrain on non-road tiles
+  const forestChance = 0.10; // 10% of non-road, non-building tiles become forest
+  const waterChance = 0.05;  // 5% become water
+
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (rows[y][x] === G && rnd() < buildingChance) rows[y][x] = B;
+      if (rows[y][x] !== P) continue; // only modify base PARK tiles, never roads
+
+      const r = rnd();
+      if (r < buildingChance) {
+        rows[y][x] = B; // building footprint
+      } else if (r < buildingChance + forestChance) {
+        rows[y][x] = F; // forest / dense area
+      } else if (r < buildingChance + forestChance + waterChance) {
+        rows[y][x] = W; // water
+      } else {
+        // remain PARK
+      }
     }
   }
 
-  // Pick a "lab" location on a building tile, away from center, without changing the tile char.
+  // Pick a LAB location on a BUILD tile, away from center.
+  // This is just a coordinate in meta.lab; tile char stays BUILD.
   let lab = null;
   for (let i = 0; i < 2000 && !lab; i++) {
     const lx = Math.floor(rnd() * w);
@@ -70,8 +98,9 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
     if (manhattan({ x: lx, y: ly }, { x: cx, y: cy }) < minLabDistance) continue;
     lab = { x: lx, y: ly };
   }
+
   if (!lab) {
-    // fallback: bottom-right most building tile
+    // Fallback: pick the bottom-right most BUILD tile, if any.
     for (let y = h - 1; y >= 0 && !lab; y--) {
       for (let x = w - 1; x >= 0 && !lab; x--) {
         if (rows[y][x] === B) {
@@ -79,29 +108,43 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
         }
       }
     }
+    // Absolute fallback: center of map, even if it's not BUILD.
+    if (!lab) {
+      lab = { x: cx, y: cy };
+    }
   }
   
-  // Derive simple building metadata from the finished grid.
+  // Derive building metadata from the finished grid.
   const buildings = extractBuildings(rows, w, h, B, rnd);
 
   return {
-    seed, w, h,
+    seed,
+    w,
+    h,
     encoding: 'rows',
-    legend: { '0': 'ground', '1': 'road', '2': 'building' },
-    // compact payload for Firestore
-    data: rows.map(r => r.join('')),
-    // extra meta for engine logic (non-breaking additions)
+    legend: {
+      [R]: 'road',
+      [B]: 'build',
+      [P]: 'park',
+      [F]: 'forest',
+      [W]: 'water',
+      [X]: 'blocked',
+    },
+    // Compact payload for Firestore
+    data: rows.map((r) => r.join('')),
+    // Extra meta for engine logic (non-breaking additions)
     meta: {
       version: 1,
-      lab,                        // {x,y}
+      lab, // {x,y}
       center: { x: cx, y: cy },
-      passableChars: [G, R],      // what the engine should treat as walkable
+      passableChars: [R, B, P, F], // walkable terrain
       spawn: {
-        avoidChars: [B],          // don’t spawn on buildings
-        safeRadiusFromLab: 2,     // optional UI/logic hint
+        // Avoid spawning directly in water, blocked tiles, or on buildings
+        avoidChars: [B, W, X],
+        safeRadiusFromLab: 2,
       },
       params: { buildingChance, minLabDistance },
-      buildings,                  // [{id, type, root:{x,y}, tiles, floors}]
+      buildings, // [{id, type, root:{x,y}, tiles, floors}]
       buildingPalette: MAP.BUILDING_PALETTE,
     },
   };
@@ -122,7 +165,7 @@ function randomPassableTile(map, rng = Math.random) {
     const ch = rows[y].charAt(x);
     if (isPassableChar(ch)) return { x, y };
   }
-  // fallback linear scan
+  // Fallback linear scan
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
       if (isPassableChar(rows[y].charAt(x))) return { x, y };

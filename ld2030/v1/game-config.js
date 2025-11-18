@@ -3,12 +3,14 @@
 
 // --- Tiles (used by map-gen and gameplay logic) ---
 // Tiles represent terrain / movement, not specific building types.
-// Buildings (HOUSE, SHOP, LAB, etc.) sit on top of GROUND tiles.
+// Buildings (HOUSE, SHOP, LAB, etc.) sit on top of BUILD tiles.
 const TILES = {
-  GROUND:  '0', // default walkable land (where buildings live)
-  ROAD:    '1', // walkable, cheaper AP
-  WATER:   '2', // swim / high AP cost or blocked for some units
-  BLOCKED: '3', // cliffs, walls, ruins: not walkable
+  ROAD:    '0', // streets, cheap AP
+  BUILD:   '1', // building footprints (where houses, shops, etc. live)
+  PARK:    '3', // open green area, walkable
+  FOREST:  '4', // dense area, maybe LOS penalty / slower
+  WATER:   '5', // swim / high AP cost or blocked for some units
+  BLOCKED: '6', // cliffs, walls, ruins: not walkable
 };
 
 // --- Grid settings ---
