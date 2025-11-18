@@ -57,8 +57,9 @@ module.exports = function makeState(db, admin) {
           version: mapMeta.version,
           lab: mapMeta.lab || null,
           center: mapMeta.center || null,
-          passableChars: mapMeta.passableChars || undefined,
-          params: mapMeta.params || undefined,
+          // Never write undefined into Firestore; use null if absent.
+          passableChars: mapMeta.passableChars ?? null,
+          params: mapMeta.params ?? null,
           buildings: mapMeta.buildings || [],
         } : admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
