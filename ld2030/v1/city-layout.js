@@ -106,9 +106,9 @@ function generateCityLayout({
   // mainly toward the outskirts, so the city still feels packed.
   function pickNatureTile() {
     const r = rnd();
-    if (r < 0.6) return P;     // parks most common
-    if (r < 0.9) return F;     // forest
-    return W;                  // small amount of water
+    if (r < 0.7) return P;     // parks most common
+    if (r < 0.95) return F;    // forest
+    return W;                  // very small amount of water
   }
 
   for (let y = 0; y < h; y++) {
@@ -119,22 +119,22 @@ function generateCityLayout({
       const r = rnd();
 
       if (influence >= 0.7) {
-        // Deep city core: almost all BUILD
-        if (r < 0.97) {
+        // Deep city core: almost pure BUILD
+        if (r < 0.99) {
           rows[y][x] = B;
         } else {
           rows[y][x] = pickNatureTile();
         }
       } else if (influence >= 0.4) {
         // Mid-ring: mostly BUILD, some nature
-        if (r < 0.8) {
+        if (r < 0.9) {
           rows[y][x] = B;
         } else {
           rows[y][x] = pickNatureTile();
         }
       } else {
-        // Outskirts: mix of buildings and nature
-        if (r < 0.6) {
+        // Outskirts: mix of buildings and nature, but still more BUILD
+        if (r < 0.75) {
           rows[y][x] = B;
         } else {
           rows[y][x] = pickNatureTile();
