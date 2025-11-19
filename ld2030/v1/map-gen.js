@@ -4,6 +4,7 @@
 // Shared game config (tile codes, etc.)
 const { TILES, MAP } = require('./game-config');
 const { extractBuildings } = require('./map-buildings');
+const { generateCityLayout } = require('./city-layout');
 
 // Tiny seeded PRNG
 function mulberry32(seed) {
@@ -27,10 +28,6 @@ function isPassableChar(ch) {
   );
 }
 
-function manhattan(a, b) {
-  return Math.abs(a.x - b.x) + Math.abs(a.y - b.y);
-}
-
 /**
  * Generate a simple city map with:
  * - Cross roads (center row/col)
@@ -46,8 +43,21 @@ function manhattan(a, b) {
  * @param {number} [opts.buildingChance=0.18]  // density tweak
  * @param {number} [opts.minLabDistance=6]     // from map center (Manhattan)
  */
-function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) {
-  const rnd = mulberry32(seed | 0);
+function generateMap({
+  seed,
+  w,
+  h,
+  buildingChance = MAP.DEFAULT_BUILDING_CHANCE,
+  minLabDistance = MAP.DEFAULT_MIN_LAB_DISTANCE,
+}) {
+  // Use the city-layout helper to get terrain + lab position.
+  const { rows, lab } = generateCityLayout({
+    seed,
+    w,
+    h,
+    buildingChance,
+    minLabDistance,
+  });
 
   const R = TILES.ROAD;
   const B = TILES.BUILD;
@@ -55,66 +65,12 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
   const F = TILES.FOREST;
   const W = TILES.WATER;
 
-  // Base grid: start as PARK everywhere (generic open land).
-  const rows = Array.from({ length: h }, () =>
-    Array.from({ length: w }, () => P)
-  );
+  // Separate seeded RNG for building metadata, so it stays deterministic.
+  const rndForBuildings = mulberry32(seed | 0);
+  const buildings = extractBuildings(rows, w, h, B, rndForBuildings);
 
-  // Cross-road through center
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
-  for (let x = 0; x < w; x++) rows[cy][x] = R;
-  for (let y = 0; y < h; y++) rows[y][cx] = R;
-
-  // Scatter buildings and other terrain on non-road tiles
-  const forestChance = 0.10; // 10% of non-road, non-building tiles become forest
-  const waterChance = 0.05;  // 5% become water
-
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (rows[y][x] !== P) continue; // only modify base PARK tiles, never roads
-
-      const r = rnd();
-      if (r < buildingChance) {
-        rows[y][x] = B; // building footprint
-      } else if (r < buildingChance + forestChance) {
-        rows[y][x] = F; // forest / dense area
-      } else if (r < buildingChance + forestChance + waterChance) {
-        rows[y][x] = W; // water
-      } else {
-        // remain PARK
-      }
-    }
-  }
-
-  // Pick a LAB location on a BUILD tile, away from center.
-  // This is just a coordinate in meta.lab; tile char stays BUILD.
-  let lab = null;
-  for (let i = 0; i < 2000 && !lab; i++) {
-    const lx = Math.floor(rnd() * w);
-    const ly = Math.floor(rnd() * h);
-    if (rows[ly][lx] !== B) continue;
-    if (manhattan({ x: lx, y: ly }, { x: cx, y: cy }) < minLabDistance) continue;
-    lab = { x: lx, y: ly };
-  }
-
-  if (!lab) {
-    // Fallback: pick the bottom-right most BUILD tile, if any.
-    for (let y = h - 1; y >= 0 && !lab; y--) {
-      for (let x = w - 1; x >= 0 && !lab; x--) {
-        if (rows[y][x] === B) {
-          lab = { x, y };
-        }
-      }
-    }
-    // Absolute fallback: center of map, even if it's not BUILD.
-    if (!lab) {
-      lab = { x: cx, y: cy };
-    }
-  }
-  
-  // Derive building metadata from the finished grid.
-  const buildings = extractBuildings(rows, w, h, B, rnd);
 
   return {
     seed,
@@ -122,27 +78,24 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
     h,
     encoding: 'rows',
     legend: {
-      [TILES.ROAD]: 'road',
-      [TILES.BUILD]: 'build',
-      [TILES.PARK]: 'park',
+      [TILES.ROAD]:   'road',
+      [TILES.BUILD]:  'build',
+      [TILES.PARK]:   'park',
       [TILES.FOREST]: 'forest',
-      [TILES.WATER]: 'water',
+      [TILES.WATER]:  'water',
     },
-    // Compact payload for Firestore
     data: rows.map((r) => r.join('')),
-    // Extra meta for engine logic (non-breaking additions)
     meta: {
       version: 1,
-      lab, // {x,y}
+      lab,
       center: { x: cx, y: cy },
-      passableChars: [R, B, P, F], // walkable terrain
+      passableChars: [R, B, P, F],
       spawn: {
-        // Avoid spawning directly in water or on buildings
         avoidChars: [B, W],
         safeRadiusFromLab: 2,
       },
       params: { buildingChance, minLabDistance },
-      buildings, // [{id, type, root:{x,y}, tiles, floors}]
+      buildings,
       buildingPalette: MAP.BUILDING_PALETTE,
     },
   };
