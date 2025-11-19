@@ -37,17 +37,6 @@ function generateCityLayout({
   const F = TILES.FOREST;
   const W = TILES.WATER;
 
-  // Base grid: start as PARK everywhere (generic open land).
-  const rows = Array.from({ length: h }, () =>
-    Array.from({ length: w }, () => P)
-  );
-
-  // Cross-road through center
-  const cx = Math.floor(w / 2);
-  const cy = Math.floor(h / 2);
-  for (let x = 0; x < w; x++) rows[cy][x] = R;
-  for (let y = 0; y < h; y++) rows[y][cx] = R;
-
   // ----- District centres -----
   const area = w * h;
   let districtCount;
@@ -80,52 +69,75 @@ function generateCityLayout({
     return t;
   }
 
-  // Scatter buildings + nature
-  const baseForestChance = 0.10;
-  const baseWaterChance = 0.05;
+  // ----- Base grid: start as fully built-up city (all BUILD) -----
+  const rows = Array.from({ length: h }, () =>
+    Array.from({ length: w }, () => B)
+  );
+
+  // ----- Road network -----
+  const cx = Math.floor(w / 2);
+  const cy = Math.floor(h / 2);
+
+  // Main cross
+  for (let x = 0; x < w; x++) rows[cy][x] = R;
+  for (let y = 0; y < h; y++) rows[y][cx] = R;
+
+  // Optional secondary roads to make a small grid, if the map is big enough
+  function paintVerticalRoad(x) {
+    if (x < 0 || x >= w) return;
+    for (let y = 0; y < h; y++) rows[y][x] = R;
+  }
+  function paintHorizontalRoad(y) {
+    if (y < 0 || y >= h) return;
+    for (let x = 0; x < w; x++) rows[y][x] = R;
+  }
+
+  if (w >= 10) {
+    paintVerticalRoad(cx - 3);
+    paintVerticalRoad(cx + 3);
+  }
+  if (h >= 10) {
+    paintHorizontalRoad(cy - 3);
+    paintHorizontalRoad(cy + 3);
+  }
+
+  // ----- Nature / open tiles (parks, forest, water) -----
+  // We start from "everything is BUILD" and carve out some non-building tiles,
+  // mainly toward the outskirts, so the city still feels packed.
+  function pickNatureTile() {
+    const r = rnd();
+    if (r < 0.6) return P;     // parks most common
+    if (r < 0.9) return F;     // forest
+    return W;                  // small amount of water
+  }
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
-      if (rows[y][x] !== P) continue; // don’t touch roads
+      if (rows[y][x] === R) continue; // never replace roads
 
-      const influence = districtInfluence(x, y); // 0..1
-
-      // Near centre: more BUILD, less forest/water.
-      // Far: fewer buildings, more forest/water.
-      const localBuildingChance = Math.min(
-        0.8,
-        buildingChance * (0.4 + 1.6 * influence) // ~0.07 at edge, ~0.36 near core
-      );
-      const localForestChance = baseForestChance * (1 - influence);
-      const localWaterChance  = baseWaterChance  * (1 - 0.5 * influence);
-
+      const influence = districtInfluence(x, y); // 0..1, higher = more urban core
       const r = rnd();
-      if (r < localBuildingChance) {
-        rows[y][x] = B;
-      } else if (r < localBuildingChance + localForestChance) {
-        rows[y][x] = F;
-      } else if (r < localBuildingChance + localForestChance + localWaterChance) {
-        rows[y][x] = W;
-      } else {
-        // stays PARK
-      }
-    }
-  }
 
-  // Extra densification for small maps: make the inner 6x6 core mostly BUILD
-  if (w === 12 && h === 12) {
-    const coreMinX = 3;
-    const coreMaxX = 8;
-    const coreMinY = 3;
-    const coreMaxY = 8;
-
-    for (let y = coreMinY; y <= coreMaxY && y < h; y++) {
-      for (let x = coreMinX; x <= coreMaxX && x < w; x++) {
-        // Keep roads as roads
-        if (rows[y][x] === R) continue;
-        // If not already a building, upgrade to BUILD with high probability
-        if (rows[y][x] !== B && rnd() < 0.8) {
+      if (influence >= 0.7) {
+        // Deep city core: almost all BUILD
+        if (r < 0.97) {
           rows[y][x] = B;
+        } else {
+          rows[y][x] = pickNatureTile();
+        }
+      } else if (influence >= 0.4) {
+        // Mid-ring: mostly BUILD, some nature
+        if (r < 0.8) {
+          rows[y][x] = B;
+        } else {
+          rows[y][x] = pickNatureTile();
+        }
+      } else {
+        // Outskirts: mix of buildings and nature
+        if (r < 0.6) {
+          rows[y][x] = B;
+        } else {
+          rows[y][x] = pickNatureTile();
         }
       }
     }
@@ -152,6 +164,7 @@ function generateCityLayout({
   return {
     rows,
     lab,
+    districtCenters,
   };
 }
 
