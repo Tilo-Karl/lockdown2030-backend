@@ -112,6 +112,25 @@ function generateCityLayout({
     }
   }
 
+  // Extra densification for small maps: make the inner 6x6 core mostly BUILD
+  if (w === 12 && h === 12) {
+    const coreMinX = 3;
+    const coreMaxX = 8;
+    const coreMinY = 3;
+    const coreMaxY = 8;
+
+    for (let y = coreMinY; y <= coreMaxY && y < h; y++) {
+      for (let x = coreMinX; x <= coreMaxX && x < w; x++) {
+        // Keep roads as roads
+        if (rows[y][x] === R) continue;
+        // If not already a building, upgrade to BUILD with high probability
+        if (rows[y][x] !== B && rnd() < 0.8) {
+          rows[y][x] = B;
+        }
+      }
+    }
+  }
+
   // ----- Lab placement on a BUILD tile -----
   let lab = null;
   for (let i = 0; i < 2000 && !lab; i++) {
