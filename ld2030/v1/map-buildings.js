@@ -1,18 +1,20 @@
 // ld2030/v1/map-buildings.js
-// Scan the grid for contiguous building regions and generate simple building metadata.
+// Scan the grid for contiguous BUILD regions and generate simple building metadata.
 
 const { MAP } = require('./game-config');
 
 /**
  * Scan the grid for contiguous building regions and generate simple building metadata.
  *
- * For now we treat any connected cluster of BUILD tiles as a single building and
- * assign a random floor count in a small range (deterministic via rnd).
+ * We treat any connected cluster of BUILD tiles as a single building “footprint”
+ * and assign:
+ *   - a high-level building type from MAP.BUILDING_TYPES
+ *   - a floor count with decreasing probability for higher floors
  *
  * @param {string[][]} rows   2D array of tile chars
  * @param {number} w          width
  * @param {number} h          height
- * @param {string} BUILD_CH   tile char that means "building" (usually TILES.BUILD)
+ * @param {string} BUILD_CH   tile char that means "building" (TILES.BUILD)
  * @param {function():number} rnd  deterministic RNG (0..1)
  * @returns {Array<{id:string,type:string,root:{x:number,y:number},tiles:number,floors:number}>}
  */
@@ -28,14 +30,14 @@ function extractBuildings(rows, w, h, BUILD_CH, rnd) {
     [0, -1],
   ];
 
-  // High-level building categories for metadata; fall back to a single generic type
-  const buildingTypes = (MAP && MAP.BUILDING_TYPES) || ['BUILD'];
+  // High-level building categories for metadata; fall back to a generic HOUSE
+  const buildingTypes = (MAP && MAP.BUILDING_TYPES) || ['HOUSE'];
 
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (rows[y][x] !== BUILD_CH || visited[y][x]) continue;
 
-      // Flood fill to get all tiles belonging to this building
+      // Flood fill to get all tiles belonging to this building footprint
       const queue = [{ x, y }];
       visited[y][x] = true;
       const tiles = [];
@@ -83,9 +85,9 @@ function extractBuildings(rows, w, h, BUILD_CH, rnd) {
         }
       }
 
-      // Deterministic high-level building type label (e.g. BUILD / RESTAURANT / POLICE / MALL)
+      // Deterministic high-level building type label (HOUSE / SHOP / POLICE / etc.)
       const typeIndex = Math.floor(rnd() * buildingTypes.length);
-      const type = buildingTypes[typeIndex] || 'BUILD';
+      const type = buildingTypes[typeIndex] || 'HOUSE';
 
       buildings.push({
         id: `b${buildings.length}`,
