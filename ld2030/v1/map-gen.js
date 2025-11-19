@@ -54,7 +54,6 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
   const P = TILES.PARK;
   const F = TILES.FOREST;
   const W = TILES.WATER;
-  const X = TILES.BLOCKED;
 
   // Base grid: start as PARK everywhere (generic open land).
   const rows = Array.from({ length: h }, () =>
@@ -128,7 +127,6 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
       [TILES.PARK]: 'park',
       [TILES.FOREST]: 'forest',
       [TILES.WATER]: 'water',
-      [TILES.BLOCKED]: 'blocked',
     },
     // Compact payload for Firestore
     data: rows.map((r) => r.join('')),
@@ -139,8 +137,8 @@ function generateMap({ seed, w, h, buildingChance = 0.18, minLabDistance = 6 }) 
       center: { x: cx, y: cy },
       passableChars: [R, B, P, F], // walkable terrain
       spawn: {
-        // Avoid spawning directly in water, blocked tiles, or on buildings
-        avoidChars: [B, W, X],
+        // Avoid spawning directly in water or on buildings
+        avoidChars: [B, W],
         safeRadiusFromLab: 2,
       },
       params: { buildingChance, minLabDistance },

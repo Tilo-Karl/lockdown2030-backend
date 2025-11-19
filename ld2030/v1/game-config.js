@@ -10,7 +10,6 @@ const TILES = {
   PARK:    '3', // open green area, walkable
   FOREST:  '4', // dense area, maybe LOS penalty / slower
   WATER:   '5', // swim / high AP cost or blocked for some units
-  BLOCKED: '6', // cliffs, walls, ruins: not walkable
 };
 
 // --- Grid settings ---
@@ -99,11 +98,49 @@ const MAP = {
     HQ: '#7C3AED',           // indigo/violet
   },
 
+  // High-level district types for city layout
+  DISTRICT_TYPES: [
+    'DOWNTOWN',
+    'RESIDENTIAL',
+    'INDUSTRIAL',
+    'SUBURB',
+    'PARKLAND',
+  ],
+
+  // Per-district generation parameters (used by map-gen)
+  DISTRICT_PARAMS: {
+    DOWNTOWN: {
+      buildingChance: 0.75,  // dense core
+      forestChance: 0.02,
+      waterChance: 0.02,
+    },
+    RESIDENTIAL: {
+      buildingChance: 0.55,
+      forestChance: 0.05,
+      waterChance: 0.02,
+    },
+    INDUSTRIAL: {
+      buildingChance: 0.6,
+      forestChance: 0.01,
+      waterChance: 0.02,
+    },
+    SUBURB: {
+      buildingChance: 0.45,
+      forestChance: 0.08,
+      waterChance: 0.03,
+    },
+    PARKLAND: {
+      buildingChance: 0.25,
+      forestChance: 0.2,
+      waterChance: 0.1,
+    },
+  },
+
   // Tiles treated as "natural" / non-urban for simple heuristics.
   NATURAL_TILES: ['WATER'],
 
   // Tiles where we never spawn players directly (can refine later with building rules).
-  SPAWN_AVOID: ['WATER', 'BLOCKED'],
+  SPAWN_AVOID: ['WATER'],
 };
 
 // --- Player parameters ---
