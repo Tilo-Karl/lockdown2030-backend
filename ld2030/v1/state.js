@@ -61,6 +61,7 @@ module.exports = function makeState(db, admin) {
           passableChars: mapMeta.passableChars ?? null,
           params: mapMeta.params ?? null,
           buildings: mapMeta.buildings || [],
+          buildingPalette: mapMeta.buildingPalette || null,
         } : admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
