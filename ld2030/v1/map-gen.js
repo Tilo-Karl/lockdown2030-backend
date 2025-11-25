@@ -51,7 +51,7 @@ function generateMap({
   minLabDistance = MAP.DEFAULT_MIN_LAB_DISTANCE,
 }) {
   // Use the city-layout helper to get terrain + lab position.
-  const { rows, lab } = generateCityLayout({
+  const { rows, lab, buildTiles } = generateCityLayout({
     seed,
     w,
     h,
@@ -68,6 +68,30 @@ function generateMap({
   // Separate seeded RNG for building metadata, so it stays deterministic.
   const rndForBuildings = mulberry32(seed | 0);
   const buildings = extractBuildings(rows, w, h, B, rndForBuildings);
+
+  // --- Generic buildings for every BUILD tile (Option C) ---
+  const genericTypes = [
+    'HOUSE','APARTMENT','SHOP','RESTAURANT',
+    'OFFICE','WAREHOUSE','PARKING'
+  ];
+
+  const hasSpecial = new Set();
+  for (const b of buildings) {
+    hasSpecial.add(`${b.root.x},${b.root.y}`);
+  }
+
+  for (const pos of buildTiles) {
+    const key = `${pos.x},${pos.y}`;
+    if (hasSpecial.has(key)) continue;
+    const type = genericTypes[Math.floor(rndForBuildings() * genericTypes.length)];
+    buildings.push({
+      id: `g_${key}`,
+      type,
+      root: { x: pos.x, y: pos.y },
+      tiles: 1,
+      floors: 1 + Math.floor(rndForBuildings() * 6)
+    });
+  }
 
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);

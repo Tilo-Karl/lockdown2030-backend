@@ -161,10 +161,21 @@ function generateCityLayout({
     if (!lab) lab = { x: cx, y: cy };
   }
 
+  // Collect all BUILD tile positions for generic building assignment (Option C)
+  const buildTiles = [];
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (rows[y][x] === B) {
+        buildTiles.push({ x, y });
+      }
+    }
+  }
+
   return {
     rows,
     lab,
     districtCenters,
+    buildTiles,   // added for generic building generation (Option C)
   };
 }
 
