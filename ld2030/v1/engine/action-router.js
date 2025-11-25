@@ -14,11 +14,21 @@ function makeActionRouter({ engine }) {
     });
   }
 
+  async function handleAttack({ uid, targetUid, gameId = 'lockdown2030' }) {
+    return engine.processAction({
+      type: 'ATTACK',
+      uid,
+      targetUid,
+      gameId,
+    });
+  }
+
   // async function handleAttack(args) { ... }
   // async function handleEnterBuilding(args) { ... }
 
   return {
     handleMove,
+    handleAttack,
   };
 }
 

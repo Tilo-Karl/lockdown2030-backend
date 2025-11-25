@@ -1,5 +1,5 @@
 // Mounts POST /api/ld2030/v1/move-player
-module.exports = function registerMovePlayer(app, { writer, base }) {
+module.exports = function registerMovePlayer(app, { engine, base }) {
   const BASE = base || '/api/ld2030/v1';
 
   app.post(`${BASE}/move-player`, async (req, res) => {
@@ -9,7 +9,14 @@ module.exports = function registerMovePlayer(app, { writer, base }) {
         return res.status(400).json({ ok: false, error: 'uid_required' });
       }
 
-      await writer.movePlayer({ gameId, uid, dx, dy });
+      // Delegate to engine action router
+      await engine.router.dispatch({
+        type: 'MOVE',
+        gameId,
+        uid,
+        dx,
+        dy,
+      });
 
       return res.json({ ok: true });
     } catch (e) {

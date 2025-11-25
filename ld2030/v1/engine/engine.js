@@ -1,4 +1,5 @@
 // ld2030/v1/engine/engine.js
+const { PLAYER } = require('../game-config');
 // Core game logic: takes actions, applies rules, calls state-writer.
 
 function makeEngine({ reader, writer }) {
@@ -9,8 +10,8 @@ function makeEngine({ reader, writer }) {
     switch (action.type) {
       case 'MOVE':
         return handleMove(action);
-      // case 'ATTACK':
-      //   return handleAttack(action);
+      case 'ATTACK':
+        return handleAttack(action);
       // case 'ENTER_BUILDING':
       //   return handleEnterBuilding(action);
       default:
@@ -51,6 +52,26 @@ function makeEngine({ reader, writer }) {
       gameId,
       uid,
       pos: nextPlayer.pos,
+    };
+  }
+
+  async function handleAttack({ gameId = 'lockdown2030', uid, targetUid }) {
+    if (!uid) throw new Error('ATTACK: uid is required');
+    if (!targetUid) throw new Error('ATTACK: targetUid is required');
+
+    const result = await writer.attackPlayer({
+      gameId,
+      attackerUid: uid,
+      targetUid,
+      apCost: PLAYER.ATTACK_AP_COST,
+      damage: PLAYER.ATTACK_DAMAGE,
+    });
+
+    return {
+      ok: true,
+      gameId,
+      attacker: { uid, ...(result.attacker || {}) },
+      target: { uid: targetUid, ...(result.target || {}) },
     };
   }
 

@@ -29,6 +29,62 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       return { ok: true };
     },
 
+    async attackPlayer({ gameId = 'lockdown2030', attackerUid, targetUid, damage = 10, apCost = 1 }) {
+      if (!attackerUid || !targetUid) {
+        throw new Error('attackPlayer: attackerUid and targetUid are required');
+      }
+
+      const players = state.playersCol(gameId);
+      const attackerRef = players.doc(attackerUid);
+      const targetRef = players.doc(targetUid);
+
+      await db.runTransaction(async (tx) => {
+        const [attSnap, tgtSnap] = await Promise.all([
+          tx.get(attackerRef),
+          tx.get(targetRef),
+        ]);
+
+        if (!attSnap.exists || !tgtSnap.exists) {
+          throw new Error('attackPlayer: player_not_found');
+        }
+
+        const attacker = attSnap.data() || {};
+        const target = tgtSnap.data() || {};
+
+        const curAp = attacker.ap ?? 0;
+        if (curAp < apCost) {
+          throw new Error('attackPlayer: not_enough_ap');
+        }
+
+        const newAp = curAp - apCost;
+        const curHp = target.hp ?? 0;
+        const newHp = Math.max(0, curHp - damage);
+
+        tx.set(
+          attackerRef,
+          {
+            ...attacker,
+            ap: newAp,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        tx.set(
+          targetRef,
+          {
+            ...target,
+            hp: newHp,
+            alive: newHp > 0,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      return { ok: true };
+    },
+
     async updatePlayer(gameId, uid, data) {
       await state.playersCol(gameId).doc(uid).set(
         {
