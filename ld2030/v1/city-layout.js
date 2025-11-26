@@ -102,44 +102,163 @@ function generateHybridLayout({
   }
 
   // ----- Nature / open tiles (parks, forest, water) -----
-  // We start from "everything is BUILD" and carve out some non-building tiles,
-  // mainly toward the outskirts, so the city still feels packed.
-  function pickNatureTile() {
-    const r = rnd();
-    if (r < 0.7) return P;     // parks most common
-    if (r < 0.95) return F;    // forest
-    return W;                  // very small amount of water
+  // Phase 1 HYBRID:
+  // - Add ONE water feature (pond or simple river) if map is big enough
+  // - Add a few park / forest blobs
+  // - Everything else stays BUILD so the city feels dense.
+
+  function isRoad(x, y) {
+    return rows[y][x] === R;
   }
 
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (rows[y][x] === R) continue; // never replace roads
+  function isWater(x, y) {
+    return rows[y][x] === W;
+  }
 
-      const influence = districtInfluence(x, y); // 0..1, higher = more urban core
-      const r = rnd();
+  function isBuild(x, y) {
+    return rows[y][x] === B;
+  }
 
-      if (influence >= 0.7) {
-        // Deep city core: almost pure BUILD
-        if (r < 0.99) {
-          rows[y][x] = B;
-        } else {
-          rows[y][x] = pickNatureTile();
-        }
-      } else if (influence >= 0.4) {
-        // Mid-ring: mostly BUILD, some nature
-        if (r < 0.9) {
-          rows[y][x] = B;
-        } else {
-          rows[y][x] = pickNatureTile();
-        }
-      } else {
-        // Outskirts: mix of buildings and nature, but still more BUILD
-        if (r < 0.75) {
-          rows[y][x] = B;
-        } else {
-          rows[y][x] = pickNatureTile();
+  // Helper: safely paint a tile if it's currently BUILD (never overwrite road/water)
+  function paintIfBuild(x, y, tile) {
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    if (rows[y][x] === B) {
+      rows[y][x] = tile;
+    }
+  }
+
+  // ----- Water feature -----
+  // Decide if we want water and what type.
+  let waterMode = 'none';
+  if (w >= 8 && h >= 8) {
+    const r = rnd();
+    if (r < 0.35) {
+      waterMode = 'pond';
+    } else if (r < 0.7) {
+      waterMode = 'lake';
+    } else {
+      waterMode = 'river';
+    }
+  }
+
+  if (waterMode === 'pond' || waterMode === 'lake') {
+    // Random rectangular blob somewhere not on main roads
+    const maxPondSize = Math.max(2, Math.floor(Math.min(w, h) / (waterMode === 'lake' ? 3 : 5)));
+    const blobW = 2 + Math.floor(rnd() * maxPondSize);
+    const blobH = 2 + Math.floor(rnd() * maxPondSize);
+
+    // Try a few times to find a good location
+    for (let tries = 0; tries < 20; tries++) {
+      const x0 = Math.floor(rnd() * (w - blobW));
+      const y0 = Math.floor(rnd() * (h - blobH));
+
+      // Avoid directly overwriting major cross center to keep roads visible
+      let touchesRoad = false;
+      for (let yy = y0; yy < y0 + blobH && !touchesRoad; yy++) {
+        for (let xx = x0; xx < x0 + blobW; xx++) {
+          if (isRoad(xx, yy)) {
+            touchesRoad = true;
+            break;
+          }
         }
       }
+      if (touchesRoad) continue;
+
+      // Paint the blob
+      for (let yy = y0; yy < y0 + blobH; yy++) {
+        for (let xx = x0; xx < x0 + blobW; xx++) {
+          paintIfBuild(xx, yy, W);
+        }
+      }
+      break;
+    }
+  } else if (waterMode === 'river') {
+    // Simple vertical or horizontal river with slight wiggle
+    const vertical = rnd() < 0.5;
+    if (vertical) {
+      let x0 = Math.floor(rnd() * w);
+      for (let y = 0; y < h; y++) {
+        // Avoid overwriting roads if possible by shifting a bit
+        let x = x0;
+        if (isRoad(x, y)) {
+          if (x + 1 < w && !isRoad(x + 1, y)) x = x + 1;
+          else if (x - 1 >= 0 && !isRoad(x - 1, y)) x = x - 1;
+        }
+        paintIfBuild(x, y, W);
+
+        // Occasionally wiggle
+        if (rnd() < 0.3) {
+          const dir = rnd() < 0.5 ? -1 : 1;
+          const nx = x0 + dir;
+          if (nx >= 0 && nx < w) x0 = nx;
+        }
+      }
+    } else {
+      let y0 = Math.floor(rnd() * h);
+      for (let x = 0; x < w; x++) {
+        let y = y0;
+        if (isRoad(x, y)) {
+          if (y + 1 < h && !isRoad(x, y + 1)) y = y + 1;
+          else if (y - 1 >= 0 && !isRoad(x, y - 1)) y = y - 1;
+        }
+        paintIfBuild(x, y, W);
+
+        if (rnd() < 0.3) {
+          const dir = rnd() < 0.5 ? -1 : 1;
+          const ny = y0 + dir;
+          if (ny >= 0 && ny < h) y0 = ny;
+        }
+      }
+    }
+  }
+
+  // ----- Park / forest patches -----
+  // Number of green patches scales a bit with map size
+  const area = w * h;
+  const basePatches = area <= 12 * 12 ? 3 : area <= 24 * 24 ? 5 : 7;
+
+  function paintGreenBlob(tile, cx0, cy0, maxRadius) {
+    const radius = 1 + Math.floor(rnd() * maxRadius);
+    for (let dy = -radius; dy <= radius; dy++) {
+      for (let dx = -radius; dx <= radius; dx++) {
+        const x = cx0 + dx;
+        const y = cy0 + dy;
+        if (x < 0 || x >= w || y < 0 || y >= h) continue;
+        if (isRoad(x, y) || isWater(x, y)) continue;
+
+        // Slightly irregular shape: only fill some of the ring
+        const dist = Math.abs(dx) + Math.abs(dy);
+        if (dist <= radius && rnd() < 0.85) {
+          paintIfBuild(x, y, tile);
+        }
+      }
+    }
+  }
+
+  for (let i = 0; i < basePatches; i++) {
+    // Decide type: more parks than forests in general
+    const r = rnd();
+    const tile = r < 0.6 ? P : F;
+
+    // Try to find a BUILD tile to seed the blob
+    let placed = false;
+    for (let tries = 0; tries < 30 && !placed; tries++) {
+      const x = Math.floor(rnd() * w);
+      const y = Math.floor(rnd() * h);
+
+      if (!isBuild(x, y)) continue;
+
+      // Mild bias: parks a bit closer to center, forest a bit farther out
+      const centerDist = manhattan({ x, y }, { x: cx, y: cy });
+      const maxDist = w + h;
+      const t = centerDist / maxDist;
+
+      if (tile === P && t > 0.8) continue;  // avoid only outer ring parks
+      if (tile === F && t < 0.2) continue;  // avoid forests right in the core
+
+      const maxRadius = Math.max(1, Math.floor(Math.min(w, h) / 5));
+      paintGreenBlob(tile, x, y, maxRadius);
+      placed = true;
     }
   }
 
