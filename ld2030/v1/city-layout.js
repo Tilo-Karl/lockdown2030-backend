@@ -22,7 +22,7 @@ function manhattan(a, b) {
  * Generate base city terrain + lab coordinate.
  * Returns { rows, lab } where rows is a 2D array of tile chars.
  */
-function generateCityLayout({
+function generateHybridLayout({
   seed,
   w,
   h,
@@ -177,6 +177,16 @@ function generateCityLayout({
     districtCenters,
     buildTiles,   // added for generic building generation (Option C)
   };
+}
+
+function generateCityLayout(opts) {
+  const style = MAP.CITY_STYLE || 'HYBRID';
+
+  switch (style) {
+    case 'HYBRID':
+    default:
+      return generateHybridLayout(opts);
+  }
 }
 
 module.exports = {
