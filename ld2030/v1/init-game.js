@@ -30,7 +30,7 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
       }
 
       // Generate and write map + metadata
-      const { wroteMap } = await state.writeMapAndGame({
+      await state.writeMapAndGame({
         gameId,
         mapId,
         w,
@@ -43,7 +43,7 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
         `[init-game] Game '${gameId}' initialized (${w}x${h}) mapId=${mapId}`
       );
 
-      return res.json({ ok: true, wroteMap, gameId, mapId, w, h, seed });
+      return res.json({ ok: true, gameId, mapId, w, h, seed });
 
     } catch (e) {
       console.error('init-game error', e);

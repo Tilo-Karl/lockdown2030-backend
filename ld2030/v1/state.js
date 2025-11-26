@@ -4,11 +4,9 @@ const { generateMap } = require('./map-gen');
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
   const playersCol = (gameId) => gameRef(gameId).collection('players');
-  const mapRef     = (mapId)  => db.collection('maps').doc(mapId);
 
   /**
    * Create/overwrite the map (only if missing or force=true) and stamp game meta.
-   * Returns { wroteMap: boolean }.
    */
   async function writeMapAndGame({
     gameId,
@@ -22,23 +20,11 @@ module.exports = function makeState(db, admin) {
     if (!(Number.isInteger(w) && Number.isInteger(h))) throw new Error('invalid_size');
     if (w < 4 || h < 4 || w > 256 || h > 256) throw new Error('invalid_size');
 
-    const mRef = mapRef(mapId);
     const gRef = gameRef(gameId);
 
-    let shouldWriteMap = !!force;
-    if (!shouldWriteMap) {
-      const msnap = await mRef.get();
-      if (!msnap.exists) shouldWriteMap = true;
-    }
+    const mapDoc = generateMap({ seed, w, h });
 
     const batch = db.batch();
-
-    // (Re)materialize map if needed
-    let mapDoc = null;
-    if (shouldWriteMap) {
-      mapDoc = generateMap({ seed, w, h });
-      batch.set(mRef, mapDoc);
-    }
 
     // Always (re)stamp game metadata so you see a change
     const mapMeta = mapDoc ? mapDoc.meta : undefined;
@@ -57,6 +43,7 @@ module.exports = function makeState(db, admin) {
           version: mapMeta.version,
           lab: mapMeta.lab || null,
           center: mapMeta.center || null,
+          terrain: mapMeta.terrain || null,
           // Never write undefined into Firestore; use null if absent.
           passableChars: mapMeta.passableChars ?? null,
           params: mapMeta.params ?? null,
@@ -69,7 +56,6 @@ module.exports = function makeState(db, admin) {
     );
 
     await batch.commit();
-    return { wroteMap: shouldWriteMap };
   }
 
   /**
@@ -88,7 +74,6 @@ module.exports = function makeState(db, admin) {
   return {
     gameRef,
     playersCol,
-    mapRef,
     writeMapAndGame,
     readGridSize,
   };
