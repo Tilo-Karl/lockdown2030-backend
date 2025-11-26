@@ -214,7 +214,6 @@ function generateHybridLayout({
 
   // ----- Park / forest patches -----
   // Number of green patches scales a bit with map size
-  const area = w * h;
   const basePatches = area <= 12 * 12 ? 3 : area <= 24 * 24 ? 5 : 7;
 
   function paintGreenBlob(tile, cx0, cy0, maxRadius) {
