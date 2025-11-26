@@ -121,7 +121,7 @@ function generateMap({
       params: { buildingChance, minLabDistance },
       buildings,
       buildingPalette: MAP.BUILDING_PALETTE,
-      terrain: rows,
+      terrain: rows.map(r => r.join('')),
     },
   };
 }
