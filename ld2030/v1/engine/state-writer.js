@@ -1,6 +1,8 @@
 // ld2030/v1/engine/state-writer.js
 // Centralized writes/mutations to Firestore.
 
+const ZOMBIES = require('../npc/zombie-config');
+
 module.exports = function makeStateWriter({ db, admin, state }) {
   return {
     async movePlayer(gameId, uid, dx, dy) {
@@ -105,6 +107,54 @@ module.exports = function makeStateWriter({ db, admin, state }) {
         { merge: true }
       );
       return { ok: true };
+    },
+
+    async spawnZombies(gameId, spawns) {
+      if (!gameId) {
+        throw new Error('spawnZombies: missing gameId');
+      }
+
+      const zombiesCol = db.collection('games')
+        .doc(gameId)
+        .collection('zombies');
+
+      // Clear existing zombies for this game (fresh round)
+      const existing = await zombiesCol.get();
+      if (!existing.empty) {
+        const delBatch = db.batch();
+        existing.forEach((doc) => delBatch.delete(doc.ref));
+        await delBatch.commit();
+      }
+
+      if (!Array.isArray(spawns) || spawns.length === 0) {
+        return { ok: true, count: 0 };
+      }
+
+      const batch = db.batch();
+
+      spawns.forEach((spawn) => {
+        const x = Number(spawn.x);
+        const y = Number(spawn.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return;
+        }
+
+        const kindKey = (spawn.kind || 'WALKER').toUpperCase();
+        const tmpl = ZOMBIES[kindKey] || ZOMBIES.WALKER;
+
+        const ref = zombiesCol.doc();
+        batch.set(ref, {
+          type: tmpl.type || 'ZOMBIE',
+          kind: tmpl.kind || 'walker',
+          hp: tmpl.baseHp ?? 60,
+          alive: true,
+          pos: { x, y },
+          spawnedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+      });
+
+      await batch.commit();
+      return { ok: true, count: spawns.length };
     },
   };
 };
