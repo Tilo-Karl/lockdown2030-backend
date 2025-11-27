@@ -82,23 +82,60 @@ function generateHybridLayout({
   for (let x = 0; x < w; x++) rows[cy][x] = R;
   for (let y = 0; y < h; y++) rows[y][cx] = R;
 
-  // Optional secondary roads to make a small grid, if the map is big enough
-  function paintVerticalRoad(x) {
-    if (x < 0 || x >= w) return;
-    for (let y = 0; y < h; y++) rows[y][x] = R;
-  }
-  function paintHorizontalRoad(y) {
-    if (y < 0 || y >= h) return;
-    for (let x = 0; x < w; x++) rows[y][x] = R;
+  // Size-aware side streets: spurs branching off the backbone
+  function carveRoadSpur(x, y, dx, dy, minLen, maxLen) {
+    const len = minLen + Math.floor(rnd() * (maxLen - minLen + 1));
+    let nx = x;
+    let ny = y;
+
+    for (let i = 0; i < len; i++) {
+      nx += dx;
+      ny += dy;
+      if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
+      if (rows[ny][nx] === W) break;      // don't cut straight through water
+      rows[ny][nx] = R;
+    }
   }
 
-  if (w >= 10) {
-    paintVerticalRoad(cx - 3);
-    paintVerticalRoad(cx + 3);
+  // Tune spur density/length by map size
+  let spurEvery;
+  let spurChance;
+  let spurMinLen;
+  let spurMaxLen;
+
+  const smallMap = w <= 12 && h <= 12;
+  const mediumMap = !smallMap && w <= 24 && h <= 24;
+
+  if (smallMap) {
+    // Compact grid: a few short alleys
+    spurEvery = 4;
+    spurChance = 0.55;
+    spurMinLen = 2;
+    spurMaxLen = 3;
+  } else if (mediumMap) {
+    // Denser mid-size city
+    spurEvery = 3;
+    spurChance = 0.65;
+    spurMinLen = 2;
+    spurMaxLen = 5;
+  } else {
+    // Large maps: more frequent and longer spurs
+    spurEvery = 3;
+    spurChance = 0.75;
+    spurMinLen = 3;
+    spurMaxLen = 6;
   }
-  if (h >= 10) {
-    paintHorizontalRoad(cy - 3);
-    paintHorizontalRoad(cy + 3);
+
+  // Vertical spurs from center column (left/right)
+  for (let y = 1; y < h - 1; y += spurEvery) {
+    if (rnd() < spurChance) carveRoadSpur(cx, y, -1, 0, spurMinLen, spurMaxLen); // go left
+    if (rnd() < spurChance) carveRoadSpur(cx, y, +1, 0, spurMinLen, spurMaxLen); // go right
+  }
+
+  // Horizontal spurs from center row (up/down)
+  for (let x = 1; x < w - 1; x += spurEvery) {
+    if (rnd() < spurChance) carveRoadSpur(x, cy, 0, -1, spurMinLen, spurMaxLen); // go up
+    if (rnd() < spurChance) carveRoadSpur(x, cy, 0, +1, spurMinLen, spurMaxLen); // go down
   }
 
   // ----- Nature / open tiles (parks, forest, water) -----
