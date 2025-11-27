@@ -39,8 +39,6 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
         force,
       });
 
-      // Spawn initial zombies for this game
-      await state.spawnZombies({ gameId });
 
       console.log(
         `[init-game] Game '${gameId}' initialized (${w}x${h}) mapId=${mapId}`
