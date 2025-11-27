@@ -79,9 +79,89 @@ function generateHybridLayout({
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
 
-  // Main cross (primary backbone)
-  for (let x = 0; x < w; x++) rows[cy][x] = R;
-  for (let y = 0; y < h; y++) rows[y][cx] = R;
+  // Small helper for integer ranges
+  function randInt(min, max) {
+    if (max <= min) return min;
+    return min + Math.floor(rnd() * (max - min + 1));
+  }
+
+  // Mark a tile as road (bounds-checked)
+  function markRoad(x, y) {
+    if (x < 0 || x >= w || y < 0 || y >= h) return;
+    rows[y][x] = R;
+  }
+
+  // Pick main road band roughly through the middle, but with some randomness
+  const colMin = Math.max(1, Math.floor(w * 0.3));
+  const colMax = Math.min(w - 2, Math.ceil(w * 0.7));
+  const rowMin = Math.max(1, Math.floor(h * 0.3));
+  const rowMax = Math.min(h - 2, Math.ceil(h * 0.7));
+
+  const mainCol = (w <= 6) ? cx : randInt(colMin, colMax);
+  const mainRow = (h <= 6) ? cy : randInt(rowMin, rowMax);
+
+  // Carve a wobbly horizontal backbone from left to right
+  let roadY = mainRow;
+  for (let x = 0; x < w; x++) {
+    markRoad(x, roadY);
+    if (h > 4 && rnd() < 0.25) {
+      const dy = rnd() < 0.5 ? -1 : 1;
+      const ny = roadY + dy;
+      if (ny >= 1 && ny < h - 1) {
+        roadY = ny;
+      }
+    }
+  }
+
+  // Carve a wobbly vertical backbone from top to bottom
+  let roadX = mainCol;
+  for (let y = 0; y < h; y++) {
+    markRoad(roadX, y);
+    if (w > 4 && rnd() < 0.25) {
+      const dx = rnd() < 0.5 ? -1 : 1;
+      const nx = roadX + dx;
+      if (nx >= 1 && nx < w - 1) {
+        roadX = nx;
+      }
+    }
+  }
+
+  // Short side streets branching off the main network
+  function carveSideStreet(startX, startY, maxLen) {
+    let x = startX;
+    let y = startY;
+    const dir = randInt(0, 3); // 0=up,1=down,2=left,3=right
+
+    for (let step = 0; step < maxLen; step++) {
+      let nx = x;
+      let ny = y;
+
+      if (dir === 0) ny -= 1;
+      else if (dir === 1) ny += 1;
+      else if (dir === 2) nx -= 1;
+      else nx += 1;
+
+      if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
+
+      markRoad(nx, ny);
+      x = nx;
+      y = ny;
+
+      // Some side streets end early to create dead-ends
+      if (rnd() < 0.2) break;
+    }
+  }
+
+  const sideStreetTargets = Math.max(1, Math.floor((w + h) / 4));
+  let sideStreetsCarved = 0;
+  for (let y = 0; y < h && sideStreetsCarved < sideStreetTargets; y++) {
+    for (let x = 0; x < w && sideStreetsCarved < sideStreetTargets; x++) {
+      if (rows[y][x] === R && rnd() < 0.08) {
+        carveSideStreet(x, y, randInt(2, 5));
+        sideStreetsCarved++;
+      }
+    }
+  }
 
   // ----- Nature / open tiles (parks, forest, water) -----
   // Phase 1 HYBRID:
