@@ -24,7 +24,8 @@ function isPassableChar(ch) {
     ch === TILES.ROAD ||
     ch === TILES.BUILD ||
     ch === TILES.PARK ||
-    ch === TILES.FOREST
+    ch === TILES.FOREST ||
+    ch === TILES.CEMETERY
   );
 }
 
@@ -64,6 +65,7 @@ function generateMap({
   const P = TILES.PARK;
   const F = TILES.FOREST;
   const W = TILES.WATER;
+  const C = TILES.CEMETERY;
 
   // Separate seeded RNG for building metadata, so it stays deterministic.
   const rndForBuildings = mulberry32(seed | 0);
@@ -102,25 +104,34 @@ function generateMap({
     h,
     encoding: 'rows',
     legend: {
-      [TILES.ROAD]:   'road',
-      [TILES.BUILD]:  'build',
-      [TILES.PARK]:   'park',
-      [TILES.FOREST]: 'forest',
-      [TILES.WATER]:  'water',
+      [TILES.ROAD]:     'road',
+      [TILES.BUILD]:    'build',
+      [TILES.PARK]:     'park',
+      [TILES.FOREST]:   'forest',
+      [TILES.WATER]:    'water',
+      [TILES.CEMETERY]: 'cemetery',
     },
     data: rows.map((r) => r.join('')),
     meta: {
       version: 1,
       lab,
       center: { x: cx, y: cy },
-      passableChars: [R, B, P, F],
+      passableChars: [R, B, P, F, C],
       spawn: {
-        avoidChars: [B, W],
+        avoidChars: [B, W, C],
         safeRadiusFromLab: 2,
       },
       params: { buildingChance, minLabDistance },
       buildings,
       buildingPalette: MAP.BUILDING_PALETTE,
+      terrainPalette: {
+        [TILES.ROAD]:     MAP.TERRAIN_PALETTE.ROAD,
+        [TILES.BUILD]:    MAP.TERRAIN_PALETTE.BUILD,
+        [TILES.CEMETERY]: MAP.TERRAIN_PALETTE.CEMETERY,
+        [TILES.PARK]:     MAP.TERRAIN_PALETTE.PARK,
+        [TILES.FOREST]:   MAP.TERRAIN_PALETTE.FOREST,
+        [TILES.WATER]:    MAP.TERRAIN_PALETTE.WATER,
+      },
       terrain: rows.map(r => r.join('')),
     },
   };

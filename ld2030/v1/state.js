@@ -44,6 +44,7 @@ module.exports = function makeState(db, admin) {
           lab: mapMeta.lab || null,
           center: mapMeta.center || null,
           terrain: mapMeta.terrain || null,
+          terrainPalette: mapMeta.terrainPalette || null,
           // Never write undefined into Firestore; use null if absent.
           passableChars: mapMeta.passableChars ?? null,
           params: mapMeta.params ?? null,
