@@ -79,65 +79,9 @@ function generateHybridLayout({
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
 
-  // Main cross
+  // Main cross (primary backbone)
   for (let x = 0; x < w; x++) rows[cy][x] = R;
   for (let y = 0; y < h; y++) rows[y][cx] = R;
-
-  // Size-aware side streets: spurs branching off the backbone
-  function carveRoadSpur(x, y, dx, dy, minLen, maxLen) {
-    const len = minLen + Math.floor(rnd() * (maxLen - minLen + 1));
-    let nx = x;
-    let ny = y;
-
-    for (let i = 0; i < len; i++) {
-      nx += dx;
-      ny += dy;
-      if (nx < 0 || nx >= w || ny < 0 || ny >= h) break;
-      if (rows[ny][nx] === W) break;      // don't cut straight through water
-      rows[ny][nx] = R;
-    }
-  }
-
-  // Tune spur density/length by map size
-  let spurEvery;
-  let spurChance;
-  let spurMinLen;
-  let spurMaxLen;
-
-  const smallMap = w <= 12 && h <= 12;
-  const mediumMap = !smallMap && w <= 24 && h <= 24;
-
-  if (smallMap) {
-    // Compact grid: a few short alleys
-    spurEvery = 4;
-    spurChance = 0.55;
-    spurMinLen = 2;
-    spurMaxLen = 3;
-  } else if (mediumMap) {
-    // Denser mid-size city
-    spurEvery = 3;
-    spurChance = 0.65;
-    spurMinLen = 2;
-    spurMaxLen = 5;
-  } else {
-    // Large maps: more frequent and longer spurs
-    spurEvery = 3;
-    spurChance = 0.75;
-    spurMinLen = 3;
-    spurMaxLen = 6;
-  }
-
-  // Vertical spurs from center column (left/right)
-  for (let y = 1; y < h - 1; y += spurEvery) {
-    if (rnd() < spurChance) carveRoadSpur(cx, y, -1, 0, spurMinLen, spurMaxLen); // go left
-    if (rnd() < spurChance) carveRoadSpur(cx, y, +1, 0, spurMinLen, spurMaxLen); // go right
-  }
-
-  // Horizontal spurs from center row (up/down)
-  for (let x = 1; x < w - 1; x += spurEvery) {
-    if (rnd() < spurChance) carveRoadSpur(x, cy, 0, -1, spurMinLen, spurMaxLen); // go up
-    if (rnd() < spurChance) carveRoadSpur(x, cy, 0, +1, spurMinLen, spurMaxLen); // go down
-  }
 
   // ----- Nature / open tiles (parks, forest, water) -----
   // Phase 1 HYBRID:
@@ -163,16 +107,6 @@ function generateHybridLayout({
     if (rows[y][x] === B) {
       rows[y][x] = tile;
     }
-  }
-
-  // Count 4-way road neighbours for simple intersection detection
-  function roadNeighborCount(x, y) {
-    let c = 0;
-    if (y > 0 && rows[y - 1][x] === R) c++;       // up
-    if (y + 1 < h && rows[y + 1][x] === R) c++;   // down
-    if (x > 0 && rows[y][x - 1] === R) c++;       // left
-    if (x + 1 < w && rows[y][x + 1] === R) c++;   // right
-    return c;
   }
 
   // ----- Water feature -----
@@ -332,46 +266,6 @@ function generateHybridLayout({
       const maxRadius = Math.max(1, Math.floor(Math.min(w, h) / 6));
       paintGreenBlob(C, x, y, maxRadius);
       placed = true;
-    }
-  }
-
-  // ----- Post-pass: thin double-wide roads (avoid parallel road bands) -----
-  // We only care about keeping roads visually single-width; intersections and
-  // dead-ends are preserved. If two roads sit side-by-side and neither tile
-  // has many road neighbours, we turn one back into BUILD.
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      if (rows[y][x] !== R) continue;
-
-      const nHere = roadNeighborCount(x, y);
-
-      // Horizontal pair (x, y) and (x+1, y)
-      if (x + 1 < w && rows[y][x + 1] === R) {
-        const nRight = roadNeighborCount(x + 1, y);
-
-        // Skip if either side looks like an intersection (3+ neighbours)
-        if (nHere < 3 && nRight < 3) {
-          if (rnd() < 0.5) {
-            rows[y][x] = B;
-          } else {
-            rows[y][x + 1] = B;
-          }
-          continue; // tile at (x,y) may no longer be road
-        }
-      }
-
-      // Vertical pair (x, y) and (x, y+1)
-      if (y + 1 < h && rows[y + 1][x] === R) {
-        const nDown = roadNeighborCount(x, y + 1);
-
-        if (nHere < 3 && nDown < 3) {
-          if (rnd() < 0.5) {
-            rows[y][x] = B;
-          } else {
-            rows[y + 1][x] = B;
-          }
-        }
-      }
     }
   }
 
