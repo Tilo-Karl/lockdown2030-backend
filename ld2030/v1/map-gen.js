@@ -71,11 +71,44 @@ function generateMap({
   const rndForBuildings = mulberry32(seed | 0);
   const buildings = extractBuildings(rows, w, h, B, rndForBuildings);
 
-  // --- Generic buildings for every BUILD tile (Option C) ---
+  // --- Generic buildings for every BUILD tile (Option C + zoning) ---
   const genericTypes = [
-    'HOUSE','APARTMENT','SHOP','RESTAURANT',
-    'OFFICE','WAREHOUSE','PARKING'
+    'HOUSE', 'APARTMENT', 'SHOP', 'RESTAURANT',
+    'OFFICE', 'WAREHOUSE', 'PARKING'
   ];
+
+  // Per-zone building pools (simple first pass; can be tuned later)
+  const zonePools = {
+    RES: [
+      'HOUSE', 'HOUSE', 'HOUSE',
+      'APARTMENT', 'APARTMENT',
+      'PARKING'
+    ],
+    COM: [
+      'SHOP', 'SHOP', 'SHOP',
+      'RESTAURANT', 'RESTAURANT',
+      'OFFICE'
+    ],
+    IND: [
+      'WAREHOUSE', 'WAREHOUSE',
+      'PARKING',
+      'OFFICE'
+    ],
+    CIV: [
+      'SCHOOL', 'SCHOOL',
+      'HOSPITAL',
+      'CLINIC',
+      'PHARMACY',
+      'POLICE',
+      'FIRE_STATION',
+      'GAS_STATION',
+      'SAFEHOUSE',
+      'OUTPOST',
+      'BUNKER',
+      'HQ',
+      'RADIO_STATION',
+    ],
+  };
 
   const hasSpecial = new Set();
   for (const b of buildings) {
@@ -85,13 +118,17 @@ function generateMap({
   for (const pos of buildTiles) {
     const key = `${pos.x},${pos.y}`;
     if (hasSpecial.has(key)) continue;
-    const type = genericTypes[Math.floor(rndForBuildings() * genericTypes.length)];
+
+    const zone = pos.zone || 'RES';
+    const pool = zonePools[zone] || genericTypes;
+    const type = pool[Math.floor(rndForBuildings() * pool.length)];
+
     buildings.push({
       id: `g_${key}`,
       type,
       root: { x: pos.x, y: pos.y },
       tiles: 1,
-      floors: 1 + Math.floor(rndForBuildings() * 6)
+      floors: 1 + Math.floor(rndForBuildings() * 6),
     });
   }
 
