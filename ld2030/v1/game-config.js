@@ -5,11 +5,12 @@
 // Tiles represent terrain / movement, not specific building types.
 // Buildings (HOUSE, SHOP, LAB, etc.) sit on top of BUILD tiles.
 const TILES = {
-  ROAD:    '0', // streets, cheap AP
-  BUILD:   '1', // building footprints (where houses, shops, etc. live)
-  PARK:    '3', // open green area, walkable
-  FOREST:  '4', // dense area, maybe LOS penalty / slower
-  WATER:   '5', // swim / high AP cost or blocked for some units
+  ROAD:     '0', // streets, cheap AP
+  BUILD:    '1', // building footprints (where houses, shops, etc. live)
+  CEMETERY: '2', // outdoor graveyard terrain
+  PARK:     '3', // open green area, walkable
+  FOREST:   '4', // dense area, maybe LOS penalty / slower
+  WATER:    '5', // swim / high AP cost or blocked for some units
 };
 
 // --- Grid settings ---
@@ -63,6 +64,7 @@ const MAP = {
     'POLICE', 'POLICE',                                   // keep police, weight 2
     'FIRE_STATION',                                       // weight 1
     'GAS_STATION',                                        // weight 1
+    'RADIO_STATION',                                      // weight 1
 
     // Faction-flavored locations / bases
     'SAFEHOUSE', 'SAFEHOUSE',                             // weight 2
@@ -74,28 +76,39 @@ const MAP = {
   // Map building types to colors
   BUILDING_PALETTE: {
     // Common civilian buildings
-    HOUSE: '#F97316',        // orange-ish
-    APARTMENT: '#4B5563',    // dark gray
-    SHOP: '#FACC15',         // yellow
-    RESTAURANT: '#EF4444',   // red
-    OFFICE: '#6B7280',       // slate gray
-    WAREHOUSE: '#92400E',    // brown
-    PARKING: '#9CA3AF',      // light gray
+    HOUSE:      '#F97316', // orange-ish
+    APARTMENT:  '#A3E635', // lime green
+    SHOP:       '#FACC15', // yellow
+    RESTAURANT: '#EF4444', // red
+    OFFICE:     '#6366F1', // indigo
+    WAREHOUSE:  '#92400E', // brown
+    PARKING:    '#FBBF24', // amber
 
     // Services / public buildings
-    CLINIC: '#A855F7',       // purple
-    HOSPITAL: '#EC4899',     // pink
-    PHARMACY: '#22C55E',     // green
-    SCHOOL: '#0EA5E9',       // cyan
-    POLICE: '#3B82F6',       // blue
-    FIRE_STATION: '#DC2626', // bright red
-    GAS_STATION: '#F97316',  // reuse orange
+    CLINIC:        '#A855F7', // purple
+    HOSPITAL:      '#EC4899', // pink
+    PHARMACY:      '#22C55E', // green
+    SCHOOL:        '#0EA5E9', // cyan
+    POLICE:        '#3B82F6', // blue
+    FIRE_STATION:  '#DC2626', // bright red
+    GAS_STATION:   '#F97316', // reuse orange
+    RADIO_STATION: '#FB7185', // rose
 
     // Faction / special locations
-    SAFEHOUSE: '#22C55E',    // emerald
-    OUTPOST: '#F59E0B',      // amber
-    BUNKER: '#4B5563',       // dark gray
-    HQ: '#7C3AED',           // indigo/violet
+    SAFEHOUSE: '#22C55E', // emerald
+    OUTPOST:   '#F59E0B', // amber
+    BUNKER:    '#4C1D95', // dark violet
+    HQ:        '#7C3AED', // indigo/violet
+  },
+
+  // Map terrain types to colors
+  TERRAIN_PALETTE: {
+    ROAD:    '#111827', // dark grey, unique to roads
+    BUILD:   '#1F2933', // base under buildings (usually hidden)
+    PARK:    '#4ADE80', // bright green
+    FOREST:  '#166534', // dark green
+    WATER:   '#0EA5E9', // cyan/blue
+    CEMETERY:'#4D7C0F', // mossy green-brown
   },
 
   // High-level district types for city layout

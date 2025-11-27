@@ -36,6 +36,7 @@ function generateHybridLayout({
   const P = TILES.PARK;
   const F = TILES.FOREST;
   const W = TILES.WATER;
+  const C = TILES.CEMETERY;
 
   // ----- District centres -----
   const area = w * h;
@@ -294,6 +295,32 @@ function generateHybridLayout({
 
       const maxRadius = Math.max(1, Math.floor(Math.min(w, h) / 5));
       paintGreenBlob(tile, x, y, maxRadius);
+      placed = true;
+    }
+  }
+
+  // ----- Cemetery patches -----
+  // Cemeteries are outdoor, rare, and usually a bit away from the exact center.
+  const cemeteryPatches = area <= 12 * 12 ? 1 : 2;
+
+  for (let i = 0; i < cemeteryPatches; i++) {
+    let placed = false;
+    for (let tries = 0; tries < 40 && !placed; tries++) {
+      const x = Math.floor(rnd() * w);
+      const y = Math.floor(rnd() * h);
+
+      if (!isBuild(x, y)) continue;
+      if (isRoad(x, y) || isWater(x, y)) continue;
+
+      const centerDist = manhattan({ x, y }, { x: cx, y: cy });
+      const maxDist = w + h;
+      const t = centerDist / maxDist;
+
+      // Avoid very central core; cemeteries tend to be mid-outer ring
+      if (t < 0.3) continue;
+
+      const maxRadius = Math.max(1, Math.floor(Math.min(w, h) / 6));
+      paintGreenBlob(C, x, y, maxRadius);
       placed = true;
     }
   }
