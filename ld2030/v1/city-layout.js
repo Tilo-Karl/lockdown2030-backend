@@ -38,6 +38,11 @@ function generateHybridLayout({
   const W = TILES.WATER;
   const C = TILES.CEMETERY;
 
+  const ZONE_RES = 'RES';
+  const ZONE_COM = 'COM';
+  const ZONE_IND = 'IND';
+  const ZONE_CIV = 'CIV';
+
   // ----- District centres -----
   const area = w * h;
   let districtCount;
@@ -368,6 +373,43 @@ function generateHybridLayout({
     }
   }
 
+  // ----- Zoning assignment -----
+  const zoneGrid = Array.from({ length: h }, () => Array.from({ length: w }, () => null));
+
+  const districtTypes = [];
+  for (let i = 0; i < districtCenters.length; i++) {
+    if (i === 0) {
+      districtTypes.push(ZONE_CIV);
+    } else {
+      const r = rnd();
+      if (r < 0.55) districtTypes.push(ZONE_RES);
+      else if (r < 0.85) districtTypes.push(ZONE_COM);
+      else districtTypes.push(ZONE_IND);
+    }
+  }
+
+  function nearestDistrictIndex(x, y) {
+    let bestDist = Infinity;
+    let bestIndex = 0;
+    for (let i = 0; i < districtCenters.length; i++) {
+      const d = manhattan({ x, y }, districtCenters[i]);
+      if (d < bestDist) {
+        bestDist = d;
+        bestIndex = i;
+      }
+    }
+    return bestIndex;
+  }
+
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (rows[y][x] === B) {
+        const idx = nearestDistrictIndex(x, y);
+        zoneGrid[y][x] = districtTypes[idx];
+      }
+    }
+  }
+
   // ----- Lab placement on a BUILD tile -----
   let lab = null;
   for (let i = 0; i < 2000 && !lab; i++) {
@@ -391,7 +433,7 @@ function generateHybridLayout({
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (rows[y][x] === B) {
-        buildTiles.push({ x, y });
+        buildTiles.push({ x, y, zone: zoneGrid[y][x] || ZONE_RES });
       }
     }
   }
@@ -401,6 +443,7 @@ function generateHybridLayout({
     lab,
     districtCenters,
     buildTiles,   // added for generic building generation (Option C)
+    zones: zoneGrid,
   };
 }
 
