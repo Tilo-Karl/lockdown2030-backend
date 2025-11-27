@@ -100,27 +100,46 @@ function generateHybridLayout({
   const mainCol = (w <= 6) ? cx : randInt(colMin, colMax);
   const mainRow = (h <= 6) ? cy : randInt(rowMin, rowMax);
 
-  // Carve a wobbly horizontal backbone from left to right
+  // Carve a wobbly horizontal backbone from left to right.
+  // When we "wobble" up or down, we also fill the kink so the road never looks purely diagonal.
   let roadY = mainRow;
   for (let x = 0; x < w; x++) {
+    // always place the main horizontal tile
     markRoad(x, roadY);
+
     if (h > 4 && rnd() < 0.25) {
       const dy = rnd() < 0.5 ? -1 : 1;
       const ny = roadY + dy;
+
+      // keep the wobble away from the very top/bottom border
       if (ny >= 1 && ny < h - 1) {
+        // fill in the vertical connection at this column so we don't get a diagonal-only step
+        const step = dy > 0 ? 1 : -1;
+        for (let yy = roadY + step; yy !== ny + step; yy += step) {
+          markRoad(x, yy);
+        }
         roadY = ny;
       }
     }
   }
 
-  // Carve a wobbly vertical backbone from top to bottom
+  // Carve a wobbly vertical backbone from top to bottom.
+  // As with the horizontal road, we fill kinks so we never have diagonal-only connections.
   let roadX = mainCol;
   for (let y = 0; y < h; y++) {
+    // main vertical tile
     markRoad(roadX, y);
+
     if (w > 4 && rnd() < 0.25) {
       const dx = rnd() < 0.5 ? -1 : 1;
       const nx = roadX + dx;
+
       if (nx >= 1 && nx < w - 1) {
+        // fill horizontal connection at this row so the wobble doesn't look diagonal
+        const step = dx > 0 ? 1 : -1;
+        for (let xx = roadX + step; xx !== nx + step; xx += step) {
+          markRoad(xx, y);
+        }
         roadX = nx;
       }
     }
