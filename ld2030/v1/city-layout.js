@@ -165,6 +165,16 @@ function generateHybridLayout({
     }
   }
 
+  // Count 4-way road neighbours for simple intersection detection
+  function roadNeighborCount(x, y) {
+    let c = 0;
+    if (y > 0 && rows[y - 1][x] === R) c++;       // up
+    if (y + 1 < h && rows[y + 1][x] === R) c++;   // down
+    if (x > 0 && rows[y][x - 1] === R) c++;       // left
+    if (x + 1 < w && rows[y][x + 1] === R) c++;   // right
+    return c;
+  }
+
   // ----- Water feature -----
   // Decide if we want water and what type.
   let waterMode = 'none';
@@ -322,6 +332,46 @@ function generateHybridLayout({
       const maxRadius = Math.max(1, Math.floor(Math.min(w, h) / 6));
       paintGreenBlob(C, x, y, maxRadius);
       placed = true;
+    }
+  }
+
+  // ----- Post-pass: thin double-wide roads (avoid parallel road bands) -----
+  // We only care about keeping roads visually single-width; intersections and
+  // dead-ends are preserved. If two roads sit side-by-side and neither tile
+  // has many road neighbours, we turn one back into BUILD.
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      if (rows[y][x] !== R) continue;
+
+      const nHere = roadNeighborCount(x, y);
+
+      // Horizontal pair (x, y) and (x+1, y)
+      if (x + 1 < w && rows[y][x + 1] === R) {
+        const nRight = roadNeighborCount(x + 1, y);
+
+        // Skip if either side looks like an intersection (3+ neighbours)
+        if (nHere < 3 && nRight < 3) {
+          if (rnd() < 0.5) {
+            rows[y][x] = B;
+          } else {
+            rows[y][x + 1] = B;
+          }
+          continue; // tile at (x,y) may no longer be road
+        }
+      }
+
+      // Vertical pair (x, y) and (x, y+1)
+      if (y + 1 < h && rows[y + 1][x] === R) {
+        const nDown = roadNeighborCount(x, y + 1);
+
+        if (nHere < 3 && nDown < 3) {
+          if (rnd() < 0.5) {
+            rows[y][x] = B;
+          } else {
+            rows[y + 1][x] = B;
+          }
+        }
+      }
     }
   }
 
