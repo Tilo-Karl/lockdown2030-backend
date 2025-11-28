@@ -14,6 +14,7 @@ const ZOMBIES = {
 
     // Core stats
     baseHp: 60,           // starting HP for a fresh walker
+    baseAp: 0,            // starting AP for a fresh walker
     biteDamage: 10,       // damage per successful bite
 
     // Movement / AI pacing (for the future tick system)

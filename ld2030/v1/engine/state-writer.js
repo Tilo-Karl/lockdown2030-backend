@@ -87,6 +87,66 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       return { ok: true };
     },
 
+    async attackZombie({ gameId = 'lockdown2030', attackerUid, zombieId, damage = 10, apCost = 1 }) {
+      if (!attackerUid || !zombieId) {
+        throw new Error('attackZombie: attackerUid and zombieId are required');
+      }
+
+      const players = state.playersCol(gameId);
+      const zombies = state.zombiesCol(gameId);
+      const attackerRef = players.doc(attackerUid);
+      const zombieRef = zombies.doc(zombieId);
+
+      await db.runTransaction(async (tx) => {
+        const [attSnap, zomSnap] = await Promise.all([
+          tx.get(attackerRef),
+          tx.get(zombieRef),
+        ]);
+
+        if (!attSnap.exists) {
+          throw new Error('attackZombie: attacker_not_found');
+        }
+        if (!zomSnap.exists) {
+          throw new Error('attackZombie: zombie_not_found');
+        }
+
+        const attacker = attSnap.data() || {};
+        const zombie = zomSnap.data() || {};
+
+        const curAp = attacker.ap ?? 0;
+        if (curAp < apCost) {
+          throw new Error('attackZombie: not_enough_ap');
+        }
+
+        const newAp = curAp - apCost;
+        const curHp = zombie.hp ?? 0;
+        const newHp = Math.max(0, curHp - damage);
+
+        tx.set(
+          attackerRef,
+          {
+            ...attacker,
+            ap: newAp,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+
+        tx.set(
+          zombieRef,
+          {
+            ...zombie,
+            hp: newHp,
+            alive: newHp > 0,
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+      });
+
+      return { ok: true };
+    },
+
     async updatePlayer(gameId, uid, data) {
       await state.playersCol(gameId).doc(uid).set(
         {
@@ -114,9 +174,7 @@ module.exports = function makeStateWriter({ db, admin, state }) {
         throw new Error('spawnZombies: missing gameId');
       }
 
-      const zombiesCol = db.collection('games')
-        .doc(gameId)
-        .collection('zombies');
+      const zombiesCol = state.zombiesCol(gameId);
 
       // Clear existing zombies for this game (fresh round)
       const existing = await zombiesCol.get();
@@ -147,6 +205,7 @@ module.exports = function makeStateWriter({ db, admin, state }) {
           type: tmpl.type || 'ZOMBIE',
           kind: tmpl.kind || 'walker',
           hp: tmpl.baseHp ?? 60,
+          ap: tmpl.baseAp ?? 0,
           alive: true,
           pos: { x, y },
           spawnedAt: admin.firestore.FieldValue.serverTimestamp(),

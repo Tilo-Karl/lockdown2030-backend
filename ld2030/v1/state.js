@@ -5,6 +5,7 @@ const ZOMBIES = require('./npc/zombie-config');
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
   const playersCol = (gameId) => gameRef(gameId).collection('players');
+  const zombiesCol = (gameId) => gameRef(gameId).collection('zombies');
 
   /**
    * Create/overwrite the map (only if missing or force=true) and stamp game meta.
@@ -62,10 +63,10 @@ module.exports = function makeState(db, admin) {
     // --- Initial zombie spawn for this game ---
     // We only spawn if we have terrain data from the generated map.
     if (mapMeta && Array.isArray(mapMeta.terrain) && mapMeta.terrain.length > 0) {
-      const zombiesCol = gRef.collection('zombies');
+      const zCol = zombiesCol(gameId);
 
       // Clear existing zombies for this game (fresh round)
-      const existing = await zombiesCol.get();
+      const existing = await zCol.get();
       if (!existing.empty) {
         const delBatch = db.batch();
         existing.forEach((doc) => delBatch.delete(doc.ref));
@@ -107,11 +108,12 @@ module.exports = function makeState(db, admin) {
             baseHp: 60,
           };
 
-          const ref = zombiesCol.doc();
+          const ref = zCol.doc();
           batchZ.set(ref, {
             type: tmpl.type || 'ZOMBIE',
             kind: tmpl.kind || 'walker',
             hp: tmpl.baseHp ?? 60,
+            ap: tmpl.baseAp ?? 0,
             alive: true,
             pos: { x, y },
             spawnedAt: admin.firestore.FieldValue.serverTimestamp(),
@@ -143,6 +145,7 @@ module.exports = function makeState(db, admin) {
   return {
     gameRef,
     playersCol,
+    zombiesCol,
     writeMapAndGame,
     readGridSize,
   };

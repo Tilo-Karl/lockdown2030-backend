@@ -11,6 +11,7 @@ const registerInitGame     = require('./ld2030/v1/init-game');
 const registerJoinGame     = require('./ld2030/v1/join-game');
 const registerMovePlayer   = require('./ld2030/v1/move-player');
 const registerAttackPlayer = require('./ld2030/v1/attack-player');
+const registerAttackZombie = require('./ld2030/v1/attack-zombie');
 
 // ---------------------------------------------
 // Firebase setup
@@ -48,6 +49,7 @@ registerJoinGame(app, ctx);
 // Actions (movement & combat) default to engine
 registerMovePlayer(app, { engine: gameEngine, base: BASE });
 registerAttackPlayer(app, { engine: gameEngine, base: BASE });
+registerAttackZombie(app, { engine: gameEngine, base: BASE });
 
 // ---------------------------------------------
 // Export cloud function
