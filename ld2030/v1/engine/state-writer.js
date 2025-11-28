@@ -92,6 +92,8 @@ module.exports = function makeStateWriter({ db, admin, state }) {
         throw new Error('attackZombie: attackerUid and zombieId are required');
       }
 
+      let finalHp = null;
+
       const players = state.playersCol(gameId);
       const zombies = state.zombiesCol(gameId);
       const attackerRef = players.doc(attackerUid);
@@ -121,6 +123,7 @@ module.exports = function makeStateWriter({ db, admin, state }) {
         const newAp = curAp - apCost;
         const curHp = zombie.hp ?? 0;
         const newHp = Math.max(0, curHp - damage);
+        finalHp = newHp;
 
         tx.set(
           attackerRef,
@@ -144,7 +147,7 @@ module.exports = function makeStateWriter({ db, admin, state }) {
         );
       });
 
-      return { ok: true };
+      return { ok: true, zombieHp: finalHp };
     },
 
     async updatePlayer(gameId, uid, data) {
