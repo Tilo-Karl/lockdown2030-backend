@@ -5,6 +5,7 @@ const ZOMBIES = require('../npc/zombie-config');
 
 module.exports = function makeStateWriter({ db, admin, state }) {
   return {
+    /** Move a player by (dx, dy) and stamp updatedAt. */
     async movePlayer(gameId, uid, dx, dy) {
       const ref = state.playersCol(gameId).doc(uid);
 
@@ -31,7 +32,14 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       return { ok: true };
     },
 
-    async attackPlayer({ gameId = 'lockdown2030', attackerUid, targetUid, damage = 10, apCost = 1 }) {
+    /** Player vs player attack. AP-gated. */
+    async attackPlayer({
+      gameId = 'lockdown2030',
+      attackerUid,
+      targetUid,
+      damage = 10,
+      apCost = 1,
+    }) {
       if (!attackerUid || !targetUid) {
         throw new Error('attackPlayer: attackerUid and targetUid are required');
       }
@@ -87,17 +95,27 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       return { ok: true };
     },
 
-    async attackZombie({ gameId = 'lockdown2030', attackerUid, zombieId, damage = 10, apCost = 1 }) {
+    /** Player hits a zombie; zombie may bite back once as a reaction. */
+    async attackZombie({
+      gameId = 'lockdown2030',
+      attackerUid,
+      zombieId,
+      damage = 10,
+      apCost = 1,
+    }) {
       if (!attackerUid || !zombieId) {
         throw new Error('attackZombie: attackerUid and zombieId are required');
       }
-
-      let finalHp = null;
 
       const players = state.playersCol(gameId);
       const zombies = state.zombiesCol(gameId);
       const attackerRef = players.doc(attackerUid);
       const zombieRef = zombies.doc(zombieId);
+
+      let finalZombieHp = null;
+      let finalPlayerHp = null;
+      let zombieDidHit = false;
+      let zombieDamage = 0;
 
       await db.runTransaction(async (tx) => {
         const [attSnap, zomSnap] = await Promise.all([
@@ -120,36 +138,69 @@ module.exports = function makeStateWriter({ db, admin, state }) {
           throw new Error('attackZombie: not_enough_ap');
         }
 
+        // 1) Player hits zombie
         const newAp = curAp - apCost;
-        const curHp = zombie.hp ?? 0;
-        const newHp = Math.max(0, curHp - damage);
-        finalHp = newHp;
+        const curZombieHp = zombie.hp ?? 0;
+        const newZombieHp = Math.max(0, curZombieHp - damage);
+        finalZombieHp = newZombieHp;
 
-        tx.set(
-          attackerRef,
-          {
-            ...attacker,
-            ap: newAp,
-            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
-          },
-          { merge: true }
-        );
+        // 2) Zombie reaction (bite back) using config template
+        const curPlayerHp = attacker.hp ?? 0;
+        let newPlayerHp = curPlayerHp;
 
+        const kindKey = (zombie.kind || 'WALKER').toUpperCase();
+        const tmpl = ZOMBIES[kindKey] || ZOMBIES.WALKER;
+        const bite = Number(tmpl.biteDamage ?? 0);
+        const hitChance =
+          typeof tmpl.hitChance === 'number' ? tmpl.hitChance : 1.0;
+
+        if (newZombieHp > 0 && bite > 0 && hitChance > 0) {
+          const roll = Math.random();
+          if (roll <= hitChance) {
+            zombieDidHit = true;
+            zombieDamage = bite;
+            newPlayerHp = Math.max(0, curPlayerHp - bite);
+          }
+        }
+
+        finalPlayerHp = newPlayerHp;
+
+        // Write attacker (AP always updated; HP only if changed)
+        const attackerWrite = {
+          ...attacker,
+          ap: newAp,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        };
+        if (newPlayerHp !== curPlayerHp) {
+          attackerWrite.hp = newPlayerHp;
+          attackerWrite.alive = newPlayerHp > 0;
+        }
+
+        tx.set(attackerRef, attackerWrite, { merge: true });
+
+        // Write zombie
         tx.set(
           zombieRef,
           {
             ...zombie,
-            hp: newHp,
-            alive: newHp > 0,
+            hp: newZombieHp,
+            alive: newZombieHp > 0,
             updatedAt: admin.firestore.FieldValue.serverTimestamp(),
           },
           { merge: true }
         );
       });
 
-      return { ok: true, zombieHp: finalHp };
+      return {
+        ok: true,
+        zombieHp: finalZombieHp,
+        playerHp: finalPlayerHp,
+        zombieDidHit,
+        zombieDamage,
+      };
     },
 
+    /** Generic helper: merge data into a player doc. */
     async updatePlayer(gameId, uid, data) {
       await state.playersCol(gameId).doc(uid).set(
         {
@@ -161,6 +212,7 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       return { ok: true };
     },
 
+    /** Merge game-level metadata into games/{gameId}. */
     async writeGameMeta(gameId, newMeta) {
       await state.gameRef(gameId).set(
         {
@@ -172,6 +224,10 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       return { ok: true };
     },
 
+    /**
+     * Respawn zombies for a game based on a list of spawn specs.
+     * Clears old zombies, then creates fresh ones based on ZOMBIES templates.
+     */
     async spawnZombies(gameId, spawns) {
       if (!gameId) {
         throw new Error('spawnZombies: missing gameId');
@@ -208,7 +264,6 @@ module.exports = function makeStateWriter({ db, admin, state }) {
           type: tmpl.type || 'ZOMBIE',
           kind: tmpl.kind || 'walker',
           hp: tmpl.baseHp ?? 60,
-          ap: tmpl.baseAp ?? 0,
           alive: true,
           pos: { x, y },
           spawnedAt: admin.firestore.FieldValue.serverTimestamp(),

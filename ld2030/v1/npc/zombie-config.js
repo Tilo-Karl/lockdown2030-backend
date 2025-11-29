@@ -14,14 +14,8 @@ const ZOMBIES = {
 
     // Core stats
     baseHp: 60,           // starting HP for a fresh walker
-    baseAp: 0,            // starting AP for a fresh walker
     biteDamage: 10,       // damage per successful bite
-
-    // Movement / AI pacing (for the future tick system)
-    apPerTick: 1,         // how many AP they gain per world tick
-    moveCost: 1,          // AP cost to move one tile
-    attackCost: 1,        // AP cost to bite once
-    moveEveryNTicks: 1,   // minimum ticks between moves (coarse throttle)
+    hitChance: 0.8,        // 80% chance to land a bite (used for reactions + ticks)
 
     // Behaviour knobs (for later)
     aggroRange: 4,        // tiles within which they notice a player
