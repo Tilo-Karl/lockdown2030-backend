@@ -1,6 +1,7 @@
 // ld2030/v1/state.js — Firestore helpers + init writes
 const { generateMap } = require('./map-gen');
 const ZOMBIES = require('./npc/zombie-config');
+const { TILES, TILE_META } = require('./config');
 
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
@@ -25,6 +26,26 @@ module.exports = function makeState(db, admin) {
     const gRef = gameRef(gameId);
 
     const mapDoc = generateMap({ seed, w, h });
+
+    // Build a compact tile meta map for Firestore (label, color, movement flags, etc.)
+    const tileMetaForFirestore = {};
+    if (TILE_META && typeof TILE_META === 'object') {
+      Object.entries(TILE_META).forEach(([code, meta]) => {
+        if (!meta) return;
+        tileMetaForFirestore[code] = {
+          label: meta.label || null,
+          colorHex: meta.colorHex || null,
+          // Booleans default to false unless explicitly true
+          blocksMovement: meta.blocksMovement === true,
+          blocksVision: meta.blocksVision === true,
+          // Spawns default to allowed unless explicitly false
+          playerSpawnAllowed: meta.playerSpawnAllowed !== false,
+          zombieSpawnAllowed: meta.zombieSpawnAllowed !== false,
+          // Movement cost defaults to 1 if not set
+          moveCost: Number.isFinite(meta.moveCost) ? meta.moveCost : 1,
+        };
+      });
+    }
 
     const batch = db.batch();
 
@@ -52,6 +73,7 @@ module.exports = function makeState(db, admin) {
           params: mapMeta.params ?? null,
           buildings: mapMeta.buildings || [],
           buildingPalette: mapMeta.buildingPalette || null,
+          tileMeta: tileMetaForFirestore,
         } : admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
@@ -95,9 +117,9 @@ module.exports = function makeState(db, admin) {
           if (!row) continue;
 
           const ch = row.charAt(x);
-          // Terrain codes from game-config:
-          // 0 = ROAD, 1 = BUILD, 2 = CEMETERY, 3 = PARK, 4 = FOREST, 5 = WATER
-          if (ch === '5') {
+          // Terrain codes from game-config (TILES):
+          // ROAD, BUILD, CEMETERY, PARK, FOREST, WATER
+          if (ch === TILES.WATER) {
             // No swimming zombies.
             continue;
           }
@@ -113,7 +135,6 @@ module.exports = function makeState(db, admin) {
             type: tmpl.type || 'ZOMBIE',
             kind: tmpl.kind || 'walker',
             hp: tmpl.baseHp ?? 60,
-            ap: tmpl.baseAp ?? 0,
             alive: true,
             pos: { x, y },
             spawnedAt: admin.firestore.FieldValue.serverTimestamp(),

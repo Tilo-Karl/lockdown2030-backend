@@ -2,7 +2,7 @@
 // Pure, deterministic map generator (no Firebase/Express).
 
 // Shared game config (tile codes, etc.)
-const { TILES, MAP } = require('./game-config');
+const { TILES, MAP } = require('./config');
 const { extractBuildings } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
 
@@ -287,7 +287,7 @@ module.exports = {
 //   • Change "city feel" (roads, parks, water, zoning) in ./city-layout.js.
 //   • Change building clustering / zoning behaviour here in map-gen.js
 //     (zonePools, special building logic, etc.).
-//   • Any new terrain type → update TILES + MAP.TERRAIN_PALETTE in game-config.js
+//   • Any new terrain type → update TILES in config/config-tiles.js and MAP.TERRAIN_PALETTE in config/config-game.js
 //     and make sure city-layout + isPassableChar() + legend are in sync.
 //
 // This comment is the single source of truth for how maps are generated end-to-end.
