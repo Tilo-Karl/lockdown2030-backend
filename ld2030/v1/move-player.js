@@ -9,8 +9,8 @@ module.exports = function registerMovePlayer(app, { engine, base }) {
         return res.status(400).json({ ok: false, error: 'uid_required' });
       }
 
-      // Delegate to engine action router (no dispatch, use handleMove)
-      const result = await engine.router.handleMove({
+      // Delegate directly to the engine. It will route the MOVE action.
+      const result = await engine.processAction({
         type: 'MOVE',
         gameId,
         uid,
