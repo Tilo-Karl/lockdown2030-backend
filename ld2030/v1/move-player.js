@@ -1,3 +1,4 @@
+// ld2030/v1/move-player.js
 // Mounts POST /api/ld2030/v1/move-player
 module.exports = function registerMovePlayer(app, { engine, base }) {
   const BASE = base || '/api/ld2030/v1';
@@ -9,11 +10,11 @@ module.exports = function registerMovePlayer(app, { engine, base }) {
         return res.status(400).json({ ok: false, error: 'uid_required' });
       }
 
-      // Delegate directly to the engine. It will route the MOVE action.
-      const result = await engine.processAction({
-        type: 'MOVE',
-        gameId,
+      // IMPORTANT: engine here is the composite from engine/index.js.
+      // We must use its router, not call processAction directly.
+      const result = await engine.router.handleMove({
         uid,
+        gameId,
         dx,
         dy,
       });
