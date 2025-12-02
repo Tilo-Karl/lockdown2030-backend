@@ -45,7 +45,7 @@ function makeEngine({ reader, writer }) {
       pos: { x: clampedX, y: clampedY },
     };
 
-    await writer.savePlayer(gameId, uid, nextPlayer);
+    await writer.updatePlayer(gameId, uid, nextPlayer);
 
     return {
       ok: true,
