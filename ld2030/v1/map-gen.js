@@ -1,8 +1,8 @@
 // ld2030/v1/map-gen.js
 // Pure, deterministic map generator (no Firebase/Express).
 
-// Shared game config (tile codes, etc.)
-const { TILES, MAP } = require('./config');
+// Shared game config (tile codes, passability, etc.)
+const { TILES, MAP, NATURAL_TILE_KEYS, SPAWN_AVOID_TILE_CODES } = require('./config');
 const { extractBuildings } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
 
@@ -19,14 +19,8 @@ function mulberry32(seed) {
 
 // Passability helpers
 function isPassableChar(ch) {
-  // Roads + most land tiles are passable by default; water/blocked are not.
-  return (
-    ch === TILES.ROAD ||
-    ch === TILES.BUILD ||
-    ch === TILES.PARK ||
-    ch === TILES.FOREST ||
-    ch === TILES.CEMETERY
-  );
+  // Delegate to config-driven list of passable tiles.
+  return NATURAL_TILE_KEYS.includes(ch);
 }
 
 /**
@@ -153,9 +147,9 @@ function generateMap({
       version: 1,
       lab,
       center: { x: cx, y: cy },
-      passableChars: [R, B, P, F, C],
+      passableChars: NATURAL_TILE_KEYS,
       spawn: {
-        avoidChars: [B, W, C],
+        avoidChars: SPAWN_AVOID_TILE_CODES,
         safeRadiusFromLab: 2,
       },
       params: { buildingChance, minLabDistance },
