@@ -17,7 +17,9 @@ module.exports = function makeState(db, admin) {
     w,
     h,
     seed,
-    force = false,
+    // _force is reserved for a future "force re-init" behavior and is currently unused.
+
+    _force = false,
   }) {
     if (!gameId || !mapId) throw new Error('missing_ids');
     if (!(Number.isInteger(w) && Number.isInteger(h))) throw new Error('invalid_size');
@@ -117,7 +119,7 @@ module.exports = function makeState(db, admin) {
           if (!row) continue;
 
           const ch = row.charAt(x);
-          // Terrain codes from game-config (TILES):
+          // Terrain codes from config (TILES):
           // ROAD, BUILD, CEMETERY, PARK, FOREST, WATER
           if (ch === TILES.WATER) {
             // No swimming zombies.

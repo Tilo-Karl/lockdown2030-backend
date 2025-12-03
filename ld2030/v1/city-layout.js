@@ -1,7 +1,7 @@
 // ld2030/v1/city-layout.js
 // City terrain generator: roads, districts, parks/forest/water, lab location.
 
-const { TILES, MAP } = require('./game-config');
+const { TILES, MAP } = require('./config');
 
 // Tiny seeded PRNG (same as in map-gen; duplication is fine)
 function mulberry32(seed) {

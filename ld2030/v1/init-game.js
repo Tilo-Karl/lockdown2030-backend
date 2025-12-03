@@ -1,7 +1,7 @@
 // ld2030/v1/init-game.js
 // Mounts POST /api/ld2030/v1/init-game
 
-const { GRID, MAP } = require('./game-config');
+const { GRID, MAP } = require('../config');
 
 module.exports = function registerInitGame(app, { db, admin, state, base }) {
   const BASE = base || '/api/ld2030/v1';

@@ -1,5 +1,5 @@
 // ld2030/v1/engine/engine.js
-const { PLAYER } = require('../game-config');
+const { PLAYER } = require('../config');
 // Core game logic: takes actions, applies rules, calls state-writer.
 
 function makeEngine({ reader, writer }) {
