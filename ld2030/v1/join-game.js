@@ -1,7 +1,7 @@
 // ld2030/v1/join-game.js
 // Mounts POST /api/ld2030/v1/join-game
 
-const { GRID, PLAYER } = require('../config');
+const { GRID, PLAYER } = require('./config');
 
 module.exports = function registerJoinGame(app, { db, admin, state, base }) {
   const BASE = base || '/api/ld2030/v1';

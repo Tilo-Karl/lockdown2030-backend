@@ -1,7 +1,7 @@
 // ld2030/v1/map-buildings.js
 // Scan the grid for contiguous BUILD regions and generate simple building metadata.
 
-const { MAP } = require('../config');
+const { MAP } = require('./config');
 
 /**
  * Scan the grid for contiguous building regions and generate simple building metadata.
