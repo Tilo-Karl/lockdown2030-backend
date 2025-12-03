@@ -21,6 +21,7 @@ if (!admin.apps.length) admin.initializeApp();
 const db    = admin.firestore();
 const state = makeState(db, admin);
 const gameEngine = makeGameEngine({ db, admin, state });
+const { tickEngine } = gameEngine;
 
 // ---------------------------------------------
 // Express setup
@@ -50,6 +51,17 @@ registerJoinGame(app, ctx);
 registerMovePlayer(app, { engine: gameEngine, base: BASE });
 registerAttackPlayer(app, { engine: gameEngine, base: BASE });
 registerAttackZombie(app, { engine: gameEngine, base: BASE });
+
+app.post(`${BASE}/tick-game`, async (req, res) => {
+  try {
+    const { gameId = 'lockdown2030' } = req.body || {};
+    const result = await tickEngine.tickGame({ gameId });
+    return res.json({ ok: true, ...result });
+  } catch (e) {
+    console.error('tick-game error', e);
+    return res.status(500).json({ ok: false, error: 'tick_failed' });
+  }
+});
 
 // ---------------------------------------------
 // Export cloud function

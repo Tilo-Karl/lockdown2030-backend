@@ -2,6 +2,7 @@
 // Centralized writes/mutations to Firestore.
 
 const ZOMBIES = require('../npc/zombie-config');
+const { PLAYER } = require('../config');
 
 module.exports = function makeStateWriter({ db, admin, state }) {
   return {
@@ -13,7 +14,12 @@ module.exports = function makeStateWriter({ db, admin, state }) {
         const snap = await tx.get(ref);
         const cur = snap.exists
           ? snap.data()
-          : { pos: { x: 0, y: 0 }, hp: 100, ap: 3, alive: true };
+          : {
+              pos: { x: 0, y: 0 },
+              hp: PLAYER.START_HP ?? 100,
+              ap: PLAYER.START_AP ?? 3,
+              alive: true,
+            };
 
         const newX = (cur.pos?.x ?? 0) + Number(dx);
         const newY = (cur.pos?.y ?? 0) + Number(dy);
@@ -37,8 +43,8 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       gameId = 'lockdown2030',
       attackerUid,
       targetUid,
-      damage = 10,
-      apCost = 1,
+      damage = PLAYER.ATTACK_DAMAGE ?? 10,
+      apCost = PLAYER.ATTACK_AP_COST ?? 1,
     }) {
       if (!attackerUid || !targetUid) {
         throw new Error('attackPlayer: attackerUid and targetUid are required');
@@ -203,6 +209,18 @@ module.exports = function makeStateWriter({ db, admin, state }) {
     /** Generic helper: merge data into a player doc. */
     async updatePlayer(gameId, uid, data) {
       await state.playersCol(gameId).doc(uid).set(
+        {
+          ...data,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        },
+        { merge: true }
+      );
+      return { ok: true };
+    },
+
+    /** Generic helper: merge data into a zombie doc. */
+    async updateZombie(gameId, zombieId, data) {
+      await state.zombiesCol(gameId).doc(zombieId).set(
         {
           ...data,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
