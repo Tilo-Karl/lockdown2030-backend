@@ -2,7 +2,7 @@
 // Pure, deterministic map generator (no Firebase/Express).
 
 // Shared game config (tile codes, passability, etc.)
-const { TILES, MAP, NATURAL_TILE_KEYS, SPAWN_AVOID_TILE_CODES } = require('./config');
+const { TILES, MAP, NATURAL_TILE_KEYS, SPAWN_AVOID_TILE_CODES, TILE_META } = require('./config');
 const { extractBuildings } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
 
@@ -129,6 +129,15 @@ function generateMap({
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
 
+  // Build terrainPalette from TILE_META so colors come from config-tiles.
+  const terrainPalette = {};
+  Object.values(TILES).forEach((code) => {
+    const meta = TILE_META[code];
+    if (meta && meta.colorHex) {
+      terrainPalette[code] = meta.colorHex;
+    }
+  });
+
   return {
     seed,
     w,
@@ -155,14 +164,7 @@ function generateMap({
       params: { buildingChance, minLabDistance },
       buildings,
       buildingPalette: MAP.BUILDING_PALETTE,
-      terrainPalette: {
-        [TILES.ROAD]:     MAP.TERRAIN_PALETTE.ROAD,
-        [TILES.BUILD]:    MAP.TERRAIN_PALETTE.BUILD,
-        [TILES.CEMETERY]: MAP.TERRAIN_PALETTE.CEMETERY,
-        [TILES.PARK]:     MAP.TERRAIN_PALETTE.PARK,
-        [TILES.FOREST]:   MAP.TERRAIN_PALETTE.FOREST,
-        [TILES.WATER]:    MAP.TERRAIN_PALETTE.WATER,
-      },
+      terrainPalette,
       terrain: rows.map(r => r.join('')),
     },
   };
@@ -238,7 +240,7 @@ module.exports = {
 //        meta.passableChars / spawn rules
 //        meta.buildings   : all buildings (special + generic)
 //        meta.buildingPalette : from MAP.BUILDING_PALETTE
-//        meta.terrainPalette  : from MAP.TERRAIN_PALETTE (ROAD/BUILD/PARK/…)
+//        meta.terrainPalette  : from TILE_META in config-tiles.js (ROAD/BUILD/PARK/…)
 //        meta.terrain[]   : same as data[], used by client for terrain lookup
 //
 // 4) Firestore write (state.js)
@@ -281,7 +283,7 @@ module.exports = {
 //   • Change "city feel" (roads, parks, water, zoning) in ./city-layout.js.
 //   • Change building clustering / zoning behaviour here in map-gen.js
 //     (zonePools, special building logic, etc.).
-//   • Any new terrain type → update TILES in config/config-tiles.js and MAP.TERRAIN_PALETTE in config/config-game.js
+//   • Any new terrain type → update TILES and TILE_META in config/config-tiles.js
 //     and make sure city-layout + isPassableChar() + legend are in sync.
 //
 // This comment is the single source of truth for how maps are generated end-to-end.
