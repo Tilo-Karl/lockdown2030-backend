@@ -21,10 +21,10 @@ module.exports = function registerAttackZombie(app, { engine, base }) {
         });
       }
 
-      const result = await engine.writer.attackZombie({
+      const result = await engine.router.handleAttack({
+        uid: attackerUid,
+        targetUid: zombieId,
         gameId,
-        attackerUid,
-        zombieId,
         damage,
         apCost,
       });
