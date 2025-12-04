@@ -28,7 +28,7 @@ const TILE_META = {
   [TILES.ROAD]: {
     key: 'ROAD',
     label: 'Road',
-    colorHex: '#535d73ff',
+    colorHex: '#4B5563',
     blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,
@@ -39,7 +39,7 @@ const TILE_META = {
   [TILES.BUILD]: {
     key: 'BUILD',
     label: 'Building base',
-    colorHex: '#1F2933',
+    colorHex: '#6B7280',
     blocksMovement: false, // buildings themselves live on top of this
     blocksVision: false,
     playerSpawnAllowed: true,
@@ -50,7 +50,7 @@ const TILE_META = {
   [TILES.CEMETERY]: {
     key: 'CEMETERY',
     label: 'Cemetery',
-    colorHex: '#a0b881ff',
+    colorHex: '#D4D4D8',
     blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,
@@ -61,7 +61,7 @@ const TILE_META = {
   [TILES.PARK]: {
     key: 'PARK',
     label: 'Park',
-    colorHex: '#4ADE80',
+    colorHex: '#86EFAC',
     blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,
