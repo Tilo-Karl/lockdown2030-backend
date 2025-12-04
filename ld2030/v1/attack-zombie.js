@@ -35,9 +35,23 @@ module.exports = function registerAttackZombie(app, { engine, base }) {
       });
     } catch (e) {
       console.error('attack-zombie error', e);
-      return res.status(500).json({
+
+      const msg = e && e.message ? String(e.message) : 'internal';
+      let reason = 'internal';
+
+      if (msg.includes('not_enough_ap')) {
+        reason = 'not_enough_ap';
+      } else if (msg.includes('attacker_not_found')) {
+        reason = 'attacker_not_found';
+      } else if (msg.includes('zombie_not_found')) {
+        reason = 'zombie_not_found';
+      }
+
+      // Return a logical game error (HTTP 200) so the client can read `reason`.
+      return res.json({
         ok: false,
-        error: 'internal',
+        reason,
+        error: msg,
       });
     }
   });

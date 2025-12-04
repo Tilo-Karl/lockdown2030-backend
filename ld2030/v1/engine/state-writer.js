@@ -106,12 +106,20 @@ module.exports = function makeStateWriter({ db, admin, state }) {
       gameId = 'lockdown2030',
       attackerUid,
       zombieId,
-      damage = 10,
-      apCost = 1,
     }) {
       if (!attackerUid || !zombieId) {
         throw new Error('attackZombie: attackerUid and zombieId are required');
       }
+
+      const damage =
+        typeof PLAYER.ATTACK_DAMAGE === 'number'
+          ? PLAYER.ATTACK_DAMAGE
+          : 10;
+
+      const apCost =
+        typeof PLAYER.ATTACK_AP_COST === 'number'
+          ? PLAYER.ATTACK_AP_COST
+          : 1;
 
       const players = state.playersCol(gameId);
       const zombies = state.zombiesCol(gameId);

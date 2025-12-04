@@ -44,8 +44,9 @@ function makeZombieTicker({ reader, writer }) {
 
       alive += 1;
 
-      const x = typeof z.x === 'number' ? z.x : 0;
-      const y = typeof z.y === 'number' ? z.y : 0;
+      const pos = z.pos || {};
+      const x = typeof pos.x === 'number' ? pos.x : 0;
+      const y = typeof pos.y === 'number' ? pos.y : 0;
 
       // 4-directional random move (or stay put)
       const dirs = [
@@ -64,10 +65,12 @@ function makeZombieTicker({ reader, writer }) {
         moved += 1;
       }
 
-      // Directly update the zombie document with the new position.
+      // Directly update the zombie document with the new position (pos.x / pos.y).
       await doc.ref.update({
-        x: newX,
-        y: newY,
+        pos: {
+          x: newX,
+          y: newY,
+        },
         updatedAt: now || new Date().toISOString(),
       });
     }
