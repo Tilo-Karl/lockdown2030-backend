@@ -21,9 +21,9 @@ module.exports = function registerAttackZombie(app, { engine, base }) {
         });
       }
 
-      const result = await engine.router.handleAttack({
+      const result = await engine.router.handleAttackZombie({
         uid: attackerUid,
-        targetUid: zombieId,
+        zombieId,
         gameId,
         damage,
         apCost,

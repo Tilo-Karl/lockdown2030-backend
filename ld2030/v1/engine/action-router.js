@@ -23,12 +23,29 @@ function makeActionRouter({ engine }) {
     });
   }
 
+  async function handleAttackZombie({
+    uid,
+    zombieId,
+    gameId = 'lockdown2030',
+    damage,
+    apCost,
+  }) {
+    return engine.writer.attackZombie({
+      gameId,
+      attackerUid: uid,
+      zombieId,
+      damage,
+      apCost,
+    });
+  }
+
   // async function handleAttack(args) { ... }
   // async function handleEnterBuilding(args) { ... }
 
   return {
     handleMove,
     handleAttack,
+    handleAttackZombie,
   };
 }
 
