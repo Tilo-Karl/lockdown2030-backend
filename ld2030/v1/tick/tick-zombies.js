@@ -21,7 +21,7 @@ function makeZombieTicker({ reader, writer }) {
    * - Make them attack nearby players
    * - Write back new positions / HP via writer.*
    */
-  async function tickZombies(gameId = 'lockdown2030') {
+  async function tickZombies({ gameId = 'lockdown2030', now } = {}) {
     const col = reader.zombiesCol(gameId);
     if (!col) {
       return { updated: 0, total: 0, alive: 0 };
@@ -32,20 +32,53 @@ function makeZombieTicker({ reader, writer }) {
 
     let total = 0;
     let alive = 0;
+    let moved = 0;
 
     for (const doc of docs) {
       total += 1;
       const z = doc.data() || {};
-      if (z.alive !== false) {
-        alive += 1;
+
+      if (z.alive === false) {
+        continue;
       }
+
+      alive += 1;
+
+      const x = typeof z.x === 'number' ? z.x : 0;
+      const y = typeof z.y === 'number' ? z.y : 0;
+
+      // 4-directional random move (or stay put)
+      const dirs = [
+        { dx: 0, dy: 0 },  // stay
+        { dx: 1, dy: 0 },
+        { dx: -1, dy: 0 },
+        { dx: 0, dy: 1 },
+        { dx: 0, dy: -1 },
+      ];
+
+      const choice = dirs[Math.floor(Math.random() * dirs.length)];
+      const newX = x + choice.dx;
+      const newY = y + choice.dy;
+
+      if (choice.dx !== 0 || choice.dy !== 0) {
+        moved += 1;
+      }
+
+      // Directly update the zombie document with the new position.
+      await doc.ref.update({
+        x: newX,
+        y: newY,
+        updatedAt: now || new Date().toISOString(),
+      });
     }
 
-    // No writes yet; purely informative.
     return {
-      updated: 0,     // number of zombies we actually changed (0 for now)
+      // number of zombies we actually changed this tick
+      updated: moved,
       total,
       alive,
+      zombiesMoved: moved,
+      zombiesTotal: total,
       // included so future logic can tune behaviour per tick without changing API shape
       tickConfig: TICK?.ZOMBIE || null,
     };
