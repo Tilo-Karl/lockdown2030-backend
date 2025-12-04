@@ -64,39 +64,29 @@ const MAP = {
   // Map building types to colors
   BUILDING_PALETTE: {
     // Common civilian buildings
-    HOUSE:      '#F97316', // orange-ish
-    APARTMENT:  '#A3E635', // lime green
-    SHOP:       '#FACC15', // yellow
-    RESTAURANT: '#EF4444', // red
-    OFFICE:     '#6366F1', // indigo
-    WAREHOUSE:  '#92400E', // brown
-    PARKING:    '#FBBF24', // amber
+    HOUSE:      '#f9ad16ff', // orange-ish
+    APARTMENT:  '#e08225ff', // lime green
+    SHOP:       '#ebd270ff', // yellow
+    RESTAURANT: '#a4b453ff', // red
+    OFFICE:     '#c663f1ff', // indigo
+    WAREHOUSE:  '#52250aff', // brown
+    PARKING:    '#aaa7a041', // amber
 
     // Services / public buildings
-    CLINIC:        '#A855F7', // purple
+    CLINIC:        '#dc55f7ff', // purple
     HOSPITAL:      '#EC4899', // pink
-    PHARMACY:      '#22C55E', // green
-    SCHOOL:        '#0EA5E9', // cyan
+    PHARMACY:      '#440d4cff', // green
+    SCHOOL:        '#4ed0d0ff', // cyan
     POLICE:        '#3B82F6', // blue
     FIRE_STATION:  '#DC2626', // bright red
-    GAS_STATION:   '#F97316', // reuse orange
-    RADIO_STATION: '#FB7185', // rose
+    GAS_STATION:   '#552808ff', // reuse orange
+    RADIO_STATION: '#71fbd2ff', // rose
 
     // Faction / special locations
     SAFEHOUSE: '#22C55E', // emerald
     OUTPOST:   '#F59E0B', // amber
     BUNKER:    '#4C1D95', // dark violet
     HQ:        '#7C3AED', // indigo/violet
-  },
-
-  // Map terrain types to colors
-  TERRAIN_PALETTE: {
-    ROAD:    '#111827', // dark grey, unique to roads
-    BUILD:   '#1F2933', // base under buildings (usually hidden)
-    PARK:    '#4ADE80', // bright green
-    FOREST:  '#166534', // dark green
-    WATER:   '#0EA5E9', // cyan/blue
-    CEMETERY:'#4D7C0F', // mossy green-brown
   },
 
   // High-level district types for city layout

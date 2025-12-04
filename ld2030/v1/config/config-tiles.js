@@ -28,7 +28,7 @@ const TILE_META = {
   [TILES.ROAD]: {
     key: 'ROAD',
     label: 'Road',
-    colorHex: '#111827',
+    colorHex: '#535d73ff',
     blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,
@@ -50,7 +50,7 @@ const TILE_META = {
   [TILES.CEMETERY]: {
     key: 'CEMETERY',
     label: 'Cemetery',
-    colorHex: '#4D7C0F',
+    colorHex: '#a0b881ff',
     blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,
