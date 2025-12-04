@@ -12,7 +12,7 @@ function makeGameEngine({ db, admin, state }) {
   const writer = makeStateWriter({ db, admin, state });
   const engine = makeEngine({ reader, writer });
   const tickEngine = makeTickEngine({ reader, writer });
-  const router = makeActionRouter({ engine });
+  const router = makeActionRouter({ engine, writer });
 
   return {
     reader,
