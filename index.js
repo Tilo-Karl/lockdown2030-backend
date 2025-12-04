@@ -55,7 +55,7 @@ registerAttackZombie(app, { engine: gameEngine, base: BASE });
 app.post(`${BASE}/tick-game`, async (req, res) => {
   try {
     const { gameId = 'lockdown2030' } = req.body || {};
-    const result = await tickEngine.tickGame({ gameId });
+    const result = await tickEngine.tickZombies({ gameId });
     return res.json({ ok: true, ...result });
   } catch (e) {
     console.error('tick-game error', e);

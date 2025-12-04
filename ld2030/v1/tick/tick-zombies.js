@@ -1,4 +1,4 @@
-// ld2030/v1/tick/tick-zombie.js
+// ld2030/v1/tick/tick-zombies.js
 // Per-tick zombie updates (placeholder version).
 // Later this will handle movement, aggro, attacks, etc.
 
