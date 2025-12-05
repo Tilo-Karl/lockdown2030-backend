@@ -50,7 +50,7 @@ const TILE_META = {
   [TILES.CEMETERY]: {
     key: 'CEMETERY',
     label: 'Cemetery',
-    colorHex: '#D4D4D8',
+    colorHex: '#B45309',
     blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,

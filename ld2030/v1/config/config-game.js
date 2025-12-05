@@ -89,16 +89,6 @@ const MAP = {
     HQ:        '#4C1D95', // darkest purple
   },
 
-  // Map terrain types to colors
-  TERRAIN_PALETTE: {
-    ROAD:     '#4B5563', // dark grey, unique to roads
-    BUILD:    '#374151', // base under buildings (usually hidden)
-    PARK:     '#4ADE80', // bright green
-    FOREST:   '#166534', // darker green
-    WATER:    '#0EA5E9', // cyan/blue
-    CEMETERY: '#B45309', // light brown
-  },
-
   // High-level district types for city layout
   DISTRICT_TYPES: [
     'DOWNTOWN',
