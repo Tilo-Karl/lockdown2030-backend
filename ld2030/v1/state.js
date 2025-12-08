@@ -2,7 +2,7 @@
 const { generateMap } = require('./map-gen');
 const ZOMBIES = require('./npc/zombie-config');
 const { TILES, TILE_META } = require('./config');
-const { ZOMBIE } = require('../config/config-game');
+const { ZOMBIE } = require('./config/config-game');
 
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
