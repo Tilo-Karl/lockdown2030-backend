@@ -9,6 +9,9 @@ const GRID = {
   MAX_W: 64,
   MAX_H: 64,
 
+  // If true → init-game will use a random preset size instead of DEFAULT_W/DEFAULT_H
+  USE_RANDOM: false,
+
   // Default size the init endpoint will use
   DEFAULT_W: 12,
   DEFAULT_H: 12,
@@ -143,9 +146,20 @@ const PLAYER = {
   ATTACK_DAMAGE: 10,
 };
 
+// --- Zombie parameters ---
+const ZOMBIE = {
+  // Approximate fraction of tiles to use when spawning initial zombies
+  DENSITY: 0.10, // 10% of all tiles
+
+  // Hard lower/upper bounds so tiny or huge maps don’t go crazy
+  MIN: 10,
+  MAX: 150,
+};
+
 // --- Export everything ---
 module.exports = {
   GRID,
   MAP,
   PLAYER,
+  ZOMBIE,
 };

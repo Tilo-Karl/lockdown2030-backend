@@ -2,6 +2,7 @@
 const { generateMap } = require('./map-gen');
 const ZOMBIES = require('./npc/zombie-config');
 const { TILES, TILE_META } = require('./config');
+const { ZOMBIE } = require('../config/config-game');
 
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
@@ -103,7 +104,20 @@ module.exports = function makeState(db, admin) {
 
       if (width > 0 && height > 0) {
         // Simple rule: zombies can spawn on any tile except WATER ("5").
-        const desiredCount = Math.max(5, Math.floor((width * height) / 16));
+        const totalTiles = width * height;
+        const density = typeof ZOMBIE?.DENSITY === 'number' ? ZOMBIE.DENSITY : 0.04;
+        let desiredCount = Math.floor(totalTiles * density);
+
+        if (typeof ZOMBIE?.MIN === 'number') {
+          desiredCount = Math.max(desiredCount, ZOMBIE.MIN);
+        }
+        if (typeof ZOMBIE?.MAX === 'number') {
+          desiredCount = Math.min(desiredCount, ZOMBIE.MAX);
+        }
+        if (!Number.isFinite(desiredCount) || desiredCount < 1) {
+          desiredCount = 1;
+        }
+
         const batchZ = db.batch();
 
         let spawned = 0;

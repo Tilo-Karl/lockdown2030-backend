@@ -27,6 +27,19 @@ function makeZombieTicker({ reader, writer }) {
       return { updated: 0, total: 0, alive: 0 };
     }
 
+    // Read the actual grid size for this game so zombies don’t walk off the map
+    let width = null;
+    let height = null;
+    if (typeof reader.readGridSize === 'function') {
+      try {
+        const { w, h } = await reader.readGridSize(gameId, { w: 12, h: 12 });
+        width = w;
+        height = h;
+      } catch (e) {
+        console.error('tick-zombies: readGridSize error', e);
+      }
+    }
+
     const snap = await col.get();
     const docs = snap.docs || [];
 
@@ -58,14 +71,21 @@ function makeZombieTicker({ reader, writer }) {
       ];
 
       const choice = dirs[Math.floor(Math.random() * dirs.length)];
-      const newX = x + choice.dx;
-      const newY = y + choice.dy;
+      let newX = x + choice.dx;
+      let newY = y + choice.dy;
 
-      if (choice.dx !== 0 || choice.dy !== 0) {
+      // If we know the grid size, clamp movement so zombies stay on the map
+      if (Number.isFinite(width) && Number.isFinite(height)) {
+        newX = Math.max(0, Math.min(width - 1, newX));
+        newY = Math.max(0, Math.min(height - 1, newY));
+      }
+
+      // Only count as moved if the position actually changed
+      if (newX !== x || newY !== y) {
         moved += 1;
       }
 
-      // Directly update the zombie document with the new position (pos.x / pos.y).
+      // Directly update the zombie document with the new position
       await doc.ref.update({
         pos: {
           x: newX,
