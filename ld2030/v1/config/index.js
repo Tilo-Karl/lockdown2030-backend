@@ -6,7 +6,7 @@ const {
   TILE_META,
   NATURAL_TILE_KEYS,
   SPAWN_AVOID_TILE_CODES,
-} = require('../config-tile');          // ← note the ".." here yes
+} = require('./config-tile');
 const { GRID, MAP, PLAYER } = require('./config-game');
 const TICK = require('./config-tick');
 

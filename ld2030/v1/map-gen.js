@@ -2,8 +2,13 @@
 // Pure, deterministic map generator (no Firebase/Express).
 
 // Shared game config (tile codes, passability, etc.)
-const { TILES, MAP, TILE_META } = require('./config');
-const { NATURAL_TILE_KEYS, SPAWN_AVOID_TILE_CODES } = require('./config-tile');
+const {
+  TILES,
+  MAP,
+  TILE_META,
+  NATURAL_TILE_KEYS,
+  SPAWN_AVOID_TILE_CODES,
+} = require('./config');
 const { extractBuildings } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
 
