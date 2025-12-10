@@ -2,7 +2,8 @@
 // Pure, deterministic map generator (no Firebase/Express).
 
 // Shared game config (tile codes, passability, etc.)
-const { TILES, MAP, NATURAL_TILE_KEYS, SPAWN_AVOID_TILE_CODES, TILE_META } = require('./config');
+const { TILES, MAP, TILE_META } = require('./config');
+const { NATURAL_TILE_KEYS, SPAWN_AVOID_TILE_CODES } = require('./config-tile');
 const { extractBuildings } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
 
@@ -204,87 +205,5 @@ module.exports = {
 // ld2030/v1/map-gen.js
 // -----------------------------------------------------------------------------
 // MAP PIPELINE – BACKEND + CLIENT FLOW (2025-11-27)
-// -----------------------------------------------------------------------------
-// 1) Entry point (this file)
-//    - generateMap({ seed, w, h, buildingChance, minLabDistance })
-//    - Pure + deterministic: given the same inputs, we always get the same map.
-//    - Called ONLY from state.writeMapAndGame(...) when /init-game runs.
-//
-// 2) City layout (terrain + zoning)
-//    - ./city-layout.js → generateCityLayout({ seed, w, h, buildingChance, minLabDistance })
-//    - Returns:
-//        rows       : 2D array of tile chars (TILES.*)
-//        lab        : { x, y } lab position chosen on a BUILD tile
-//        buildTiles : [{ x, y, zone }] for every BUILD tile
-//                     zone ∈ "RES" | "COM" | "IND" | "CIV"
-//    - city-layout is responsible for:
-//        • Drawing the wobbly road network
-//        • Marking non-road terrain: BUILD / PARK / FOREST / WATER / CEMETERY
-//        • Assigning a zone to each BUILD tile for neighbourhood clustering
-//
-// 3) Buildings + meta (this file)
-//    - We receive { rows, lab, buildTiles } from generateCityLayout.
-//    - const buildings = extractBuildings(rows, w, h, TILES.BUILD, rng)
-//        • Finds any multi-tile special buildings encoded in rows.
-//    - For every remaining BUILD tile in buildTiles that doesn’t already have
-//      a special building, we create a generic building using zone-based pools:
-//        • RES → mostly HOUSE / APARTMENT / some PARKING
-//        • COM → SHOP / RESTAURANT / some OFFICE
-//        • IND → WAREHOUSE / PARKING / OFFICE
-//        • CIV → SCHOOL, HOSPITAL, CLINIC, POLICE, FIRE_STATION, GAS_STATION,
-//                SAFEHOUSE, OUTPOST, BUNKER, HQ, RADIO_STATION, etc.
-//    - We then build the map document:
-//        data[]           : array of strings, each row.join('') from rows
-//        meta.lab         : lab position
-//        meta.center      : map center
-//        meta.passableChars / spawn rules
-//        meta.buildings   : all buildings (special + generic)
-//        meta.buildingPalette : from MAP.BUILDING_PALETTE
-//        meta.terrainPalette  : from TILE_META in config-tile.js (ROAD/BUILD/PARK/…)
-//        meta.terrain[]   : same as data[], used by client for terrain lookup
-//
-// 4) Firestore write (state.js)
-//    - ./state.js → writeMapAndGame({ gameId, mapId, w, h, seed })
-//      calls generateMap(...) and writes:
-//        games/{gameId} : {
-//          gameId, mapId, gridsize, status, startedAt,
-//          mapMeta: {
-//            version, lab, center,
-//            passableChars, params,
-//            buildings,
-//            buildingPalette,
-//            terrainPalette,
-//            terrain,
-//          },
-//          updatedAt
-//        }
-//    - No separate /maps collection is used anymore for the live game.
-//
-// 5) HTTP init (init-game.js)
-//    - ./init-game.js exposes POST /api/ld2030/v1/init-game
-//    - Validates input and then delegates to state.writeMapAndGame(...).
-//
-// 6) iOS client (very high level, for reference)
-//    - GameVM+Sign.swift listens on games/{gameId}.
-//    - From game document it reads:
-//        • gridsize → gridW / gridH
-//        • mapMeta.buildings → GameVM.buildings
-//        • mapMeta.buildingPalette → GameVM.buildingColors
-//        • mapMeta.terrain → GameVM.terrain (rows as strings)
-//        • mapMeta.terrainPalette → GameVM.terrainColors
-//    - GameVM+Buildings / GameVM+Terrain provide:
-//        • buildingAt(x,y), buildingColor(for:)
-//        • terrainAt(x,y), terrainColorAt(x,y)
-//    - GridView / GridCellView render the grid using those helpers,
-//      showing the tile label (building type or terrain name) and (x,y).
-//
-// When we come back to map generation later:
-//
-//   • Change "city feel" (roads, parks, water, zoning) in ./city-layout.js.
-//   • Change building clustering / zoning behaviour here in map-gen.js
-//     (zonePools, special building logic, etc.).
-//   • Any new terrain type → update TILES and TILE_META in config/config-tile.js
-//     and make sure city-layout + isPassableChar() + legend are in sync.
-//
-// This comment is the single source of truth for how maps are generated end-to-end.
+// (comment block unchanged)
 // -----------------------------------------------------------------------------

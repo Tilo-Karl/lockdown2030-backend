@@ -43,7 +43,7 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
       // Use grid bounds from config
       if (
         width < GRID.MIN_W || height < GRID.MIN_H ||
-        width > GRID.MAX_W || height > GRID.MAX_W
+        width > GRID.MAX_W || height > GRID.MAX_H   // ← fixed MAX_H here
       ) {
         return res.status(400).json({ ok: false, error: 'invalid_size' });
       }
