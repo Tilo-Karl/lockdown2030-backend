@@ -1,47 +1,49 @@
 // ld2030/v1/engine/state-writer-spawn.js
-// Spawners for zombies, human NPCs and items.
+// All spawn helpers (zombies, human NPCs, items) in one place.
 
 const { resolveEntityConfig } = require('../entity');
 
 module.exports = function makeSpawnStateWriter({ db, admin, state }) {
+  if (!db) throw new Error('state-writer-spawn: db is required');
+  if (!admin) throw new Error('state-writer-spawn: admin is required');
+  if (!state) throw new Error('state-writer-spawn: state is required');
+
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  /**
-   * Respawn zombies for a game based on a list of spawn specs.
-   * Clears old zombies, then creates fresh ones based on ZOMBIES templates via entity config.
-   */
+  const { zombiesCol, npcsCol, itemsCol } = state;
+
+  // ---------------------------------------------------------------------------
+  // ZOMBIES
+  // spawns: [{ x, y, kind }]
+  // ---------------------------------------------------------------------------
   async function spawnZombies(gameId, spawns) {
-    if (!gameId) {
-      throw new Error('spawnZombies: missing gameId');
+    if (!gameId) throw new Error('spawnZombies: missing gameId');
+
+    const col = zombiesCol(gameId);
+    if (!Array.isArray(spawns) || spawns.length === 0) {
+      return { ok: true, count: 0 };
     }
 
-    const zombiesCol = state.zombiesCol(gameId);
-
     // Clear existing zombies for this game (fresh round)
-    const existing = await zombiesCol.get();
+    const existing = await col.get();
     if (!existing.empty) {
       const delBatch = db.batch();
       existing.forEach((doc) => delBatch.delete(doc.ref));
       await delBatch.commit();
     }
 
-    if (!Array.isArray(spawns) || spawns.length === 0) {
-      return { ok: true, count: 0 };
-    }
-
     const batch = db.batch();
+    let count = 0;
 
     spawns.forEach((spawn) => {
       const x = Number(spawn.x);
       const y = Number(spawn.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        return;
-      }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
       const kindKey = (spawn.kind || 'WALKER').toUpperCase();
       const tmpl = resolveEntityConfig('ZOMBIE', kindKey) || {};
 
-      const ref = zombiesCol.doc();
+      const ref = col.doc();
       batch.set(ref, {
         type: tmpl.type || 'ZOMBIE',
         kind: tmpl.kind || 'walker',
@@ -53,95 +55,122 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
         hitChance: tmpl.hitChance ?? 1.0,
         spawnedAt: serverTs(),
       });
+
+      count += 1;
     });
 
-    await batch.commit();
-    return { ok: true, count: spawns.length };
-  }
-
-  /**
-   * Spawn human NPCs based on a list of spawn specs.
-   * Each spawn: { x, y, kind? }
-   */
-  async function spawnHumanNpcs(gameId, spawns) {
-    if (!gameId) {
-      throw new Error('spawnHumanNpcs: missing gameId');
+    if (count > 0) {
+      await batch.commit();
     }
 
-    const npcsCol = state.npcsCol(gameId);
+    return { ok: true, count };
+  }
 
+  // ---------------------------------------------------------------------------
+  // HUMAN NPCs
+  // spawns: [{ x, y, kind }]
+  // ---------------------------------------------------------------------------
+  async function spawnHumanNpcs(gameId, spawns) {
+    if (!gameId) throw new Error('spawnHumanNpcs: missing gameId');
+
+    const col = npcsCol(gameId);
     if (!Array.isArray(spawns) || spawns.length === 0) {
       return { ok: true, count: 0 };
     }
 
+    // Clear existing NPCs for this game (fresh round)
+    const existing = await col.get();
+    if (!existing.empty) {
+      const delBatch = db.batch();
+      existing.forEach((doc) => delBatch.delete(doc.ref));
+      await delBatch.commit();
+    }
+
     const batch = db.batch();
+    let count = 0;
 
     spawns.forEach((spawn) => {
       const x = Number(spawn.x);
       const y = Number(spawn.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        return;
-      }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
       const kindKey = (spawn.kind || 'CIVILIAN').toUpperCase();
       const tmpl = resolveEntityConfig('HUMAN', kindKey) || {};
 
-      const ref = npcsCol.doc();
+      const ref = col.doc();
       batch.set(ref, {
         type: tmpl.type || 'HUMAN_NPC',
         kind: tmpl.kind || 'CIVILIAN',
-        hp: tmpl.baseHp ?? tmpl.maxHp ?? 50,
-        maxHp: tmpl.maxHp ?? tmpl.baseHp ?? 50,
+        hp: tmpl.baseHp ?? 80,
+        maxHp: tmpl.baseHp ?? 80,
         alive: true,
         pos: { x, y },
+        faction: tmpl.faction || 'neutral',
         spawnedAt: serverTs(),
       });
+
+      count += 1;
     });
 
-    await batch.commit();
-    return { ok: true, count: spawns.length };
-  }
-
-  /**
-   * Spawn items based on a list of spawn specs.
-   * Each spawn: { x, y, kind? }
-   */
-  async function spawnItems(gameId, spawns) {
-    if (!gameId) {
-      throw new Error('spawnItems: missing gameId');
+    if (count > 0) {
+      await batch.commit();
     }
 
-    const itemsCol = state.itemsCol(gameId);
+    return { ok: true, count };
+  }
 
+  // ---------------------------------------------------------------------------
+  // ITEMS
+  // spawns: [{ x, y, kind }]
+  // ---------------------------------------------------------------------------
+  async function spawnItems(gameId, spawns) {
+    if (!gameId) throw new Error('spawnItems: missing gameId');
+
+    const col = itemsCol(gameId);
     if (!Array.isArray(spawns) || spawns.length === 0) {
       return { ok: true, count: 0 };
     }
 
+    // Clear existing items for this game (fresh round)
+    const existing = await col.get();
+    if (!existing.empty) {
+      const delBatch = db.batch();
+      existing.forEach((doc) => delBatch.delete(doc.ref));
+      await delBatch.commit();
+    }
+
     const batch = db.batch();
+    let count = 0;
 
     spawns.forEach((spawn) => {
       const x = Number(spawn.x);
       const y = Number(spawn.y);
-      if (!Number.isFinite(x) || !Number.isFinite(y)) {
-        return;
-      }
+      if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
       const kindKey = (spawn.kind || 'GENERIC').toUpperCase();
       const tmpl = resolveEntityConfig('ITEM', kindKey) || {};
 
-      const ref = itemsCol.doc();
+      const ref = col.doc();
       batch.set(ref, {
         type: tmpl.type || 'ITEM',
         kind: tmpl.kind || 'GENERIC',
-        hp: tmpl.baseHp ?? null,
-        maxHp: tmpl.maxHp ?? null,
+        hp: tmpl.baseHp ?? null,    // items can be destructible later
+        maxHp: tmpl.baseHp ?? null,
         pos: { x, y },
+        weight: tmpl.weight ?? 1,
+        armor: tmpl.armor ?? 0,
+        damage: tmpl.damage ?? 0,
         spawnedAt: serverTs(),
       });
+
+      count += 1;
     });
 
-    await batch.commit();
-    return { ok: true, count: spawns.length };
+    if (count > 0) {
+      await batch.commit();
+    }
+
+    return { ok: true, count };
   }
 
   return {
