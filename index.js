@@ -7,9 +7,9 @@ const admin      = require('firebase-admin');
 const makeState       = require('./ld2030/v1/state');
 const makeGameEngine  = require('./ld2030/v1/engine');
 
-const registerInitGame     = require('./ld2030/v1/init-game');
-const registerJoinGame     = require('./ld2030/v1/join-game');
-const registerMovePlayer   = require('./ld2030/v1/move-player');
+const registerInitGame    = require('./ld2030/v1/init-game');
+const registerJoinGame    = require('./ld2030/v1/join-game');
+const registerMovePlayer  = require('./ld2030/v1/move-player');
 const registerAttackEntity = require('./ld2030/v1/attack-entity');
 
 // ---------------------------------------------
@@ -46,10 +46,11 @@ registerInitGame(app, ctx);
 // Player join / spawn
 registerJoinGame(app, ctx);
 
-// Actions (movement & combat) default to engine
+// Actions (movement & combat) via engine/router
 registerMovePlayer(app, { engine: gameEngine, base: BASE });
 registerAttackEntity(app, { engine: gameEngine, base: BASE });
 
+// Tick endpoint (players + zombies)
 app.post(`${BASE}/tick-game`, async (req, res) => {
   try {
     const { gameId = 'lockdown2030' } = req.body || {};
