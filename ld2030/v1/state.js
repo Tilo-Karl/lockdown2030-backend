@@ -1,8 +1,8 @@
 // ld2030/v1/state.js — Firestore helpers + init writes
 const { generateMap } = require('./map-gen');
-const ZOMBIES = require('./npc/zombie-config');
 const { TILES, TILE_META } = require('./config');
 const { ZOMBIE } = require('./config/config-game');
+const makeSpawnStateWriter = require('./engine/state-writer-spawn');
 
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
@@ -11,8 +11,19 @@ module.exports = function makeState(db, admin) {
   const npcsCol    = (gameId) => gameRef(gameId).collection('npcs');
   const itemsCol   = (gameId) => gameRef(gameId).collection('items');
 
+  // Spawn writer uses the same collections
+  const stateForSpawn = {
+    gameRef,
+    playersCol,
+    zombiesCol,
+    npcsCol,
+    itemsCol,
+  };
+  const spawnWriter = makeSpawnStateWriter({ db, admin, state: stateForSpawn });
+
   /**
    * Create/overwrite the map (only if missing or force=true) and stamp game meta.
+   * Also spawns zombies, human NPCs and items using the spawn writer.
    */
   async function writeMapAndGame({
     gameId,
@@ -21,7 +32,6 @@ module.exports = function makeState(db, admin) {
     h,
     seed,
     // _force is reserved for a future "force re-init" behavior and is currently unused.
-
     _force = false,
   }) {
     if (!gameId || !mapId) throw new Error('missing_ids');
@@ -89,84 +99,124 @@ module.exports = function makeState(db, admin) {
 
     await batch.commit();
 
-    // --- Initial zombie spawn for this game ---
-    // We only spawn if we have terrain data from the generated map.
-    if (mapMeta && Array.isArray(mapMeta.terrain) && mapMeta.terrain.length > 0) {
-      const zCol = zombiesCol(gameId);
+    // --- Spawns (zombies + humans + items) -------------------------
 
-      // Clear existing zombies for this game (fresh round)
-      const existing = await zCol.get();
-      if (!existing.empty) {
-        const delBatch = db.batch();
-        existing.forEach((doc) => delBatch.delete(doc.ref));
-        await delBatch.commit();
+    if (!mapMeta || !Array.isArray(mapMeta.terrain) || mapMeta.terrain.length === 0) {
+      return; // nothing else we can do
+    }
+
+    const rows = mapMeta.terrain;
+    const height = rows.length;
+    const width = rows[0]?.length || 0;
+    if (width <= 0 || height <= 0) return;
+
+    const totalTiles = width * height;
+
+    // ----- Zombies (same density as before) -----
+    const density = typeof ZOMBIE?.DENSITY === 'number' ? ZOMBIE.DENSITY : 0.04;
+    let desiredZombies = Math.floor(totalTiles * density);
+
+    if (typeof ZOMBIE?.MIN === 'number') {
+      desiredZombies = Math.max(desiredZombies, ZOMBIE.MIN);
+    }
+    if (typeof ZOMBIE?.MAX === 'number') {
+      desiredZombies = Math.min(desiredZombies, ZOMBIE.MAX);
+    }
+    if (!Number.isFinite(desiredZombies) || desiredZombies < 1) {
+      desiredZombies = 1;
+    }
+
+    const zombieSpawns = [];
+    let safety = 0;
+    let spawnedZ = 0;
+    const maxTriesZ = desiredZombies * 30;
+
+    while (spawnedZ < desiredZombies && safety < maxTriesZ) {
+      safety += 1;
+
+      const x = Math.floor(Math.random() * width);
+      const y = Math.floor(Math.random() * height);
+      const row = rows[y];
+      if (!row) continue;
+
+      const ch = row.charAt(x);
+      // Terrain codes from config (TILES):
+      // ROAD, BUILD, CEMETERY, PARK, FOREST, WATER
+      if (ch === TILES.WATER) {
+        // No swimming zombies.
+        continue;
       }
 
-      const rows = mapMeta.terrain;
-      const height = rows.length;
-      const width = rows[0]?.length || 0;
+      zombieSpawns.push({ x, y, kind: 'WALKER' });
+      spawnedZ += 1;
+    }
 
-      if (width > 0 && height > 0) {
-        // Simple rule: zombies can spawn on any tile except WATER ("5").
-        const totalTiles = width * height;
-        const density = typeof ZOMBIE?.DENSITY === 'number' ? ZOMBIE.DENSITY : 0.04;
-        let desiredCount = Math.floor(totalTiles * density);
+    if (zombieSpawns.length > 0) {
+      await spawnWriter.spawnZombies(gameId, zombieSpawns);
+    }
 
-        if (typeof ZOMBIE?.MIN === 'number') {
-          desiredCount = Math.max(desiredCount, ZOMBIE.MIN);
-        }
-        if (typeof ZOMBIE?.MAX === 'number') {
-          desiredCount = Math.min(desiredCount, ZOMBIE.MAX);
-        }
-        if (!Number.isFinite(desiredCount) || desiredCount < 1) {
-          desiredCount = 1;
-        }
+    // ----- Human NPCs (very light density) -----
+    const HUMAN_DENSITY = 0.01; // ~1% of tiles
+    const HUMAN_MIN = 3;
+    const HUMAN_MAX = 40;
 
-        const batchZ = db.batch();
+    let desiredHumans = Math.floor(totalTiles * HUMAN_DENSITY);
+    desiredHumans = Math.max(HUMAN_MIN, Math.min(HUMAN_MAX, desiredHumans));
 
-        let spawned = 0;
-        let safety = 0;
-        const maxTries = desiredCount * 30;
+    const humanSpawns = [];
+    let humanSafety = 0;
+    let spawnedH = 0;
+    const maxTriesH = desiredHumans * 30;
 
-        while (spawned < desiredCount && safety < maxTries) {
-          safety += 1;
+    while (spawnedH < desiredHumans && humanSafety < maxTriesH) {
+      humanSafety += 1;
 
-          const x = Math.floor(Math.random() * width);
-          const y = Math.floor(Math.random() * height);
-          const row = rows[y];
-          if (!row) continue;
+      const x = Math.floor(Math.random() * width);
+      const y = Math.floor(Math.random() * height);
+      const row = rows[y];
+      if (!row) continue;
 
-          const ch = row.charAt(x);
-          // Terrain codes from config (TILES):
-          // ROAD, BUILD, CEMETERY, PARK, FOREST, WATER
-          if (ch === TILES.WATER) {
-            // No swimming zombies.
-            continue;
-          }
+      const ch = row.charAt(x);
+      if (ch === TILES.WATER) continue;
 
-          const tmpl = ZOMBIES.WALKER || {
-            type: 'ZOMBIE',
-            kind: 'walker',
-            baseHp: 60,
-          };
+      humanSpawns.push({ x, y, kind: 'CIVILIAN' });
+      spawnedH += 1;
+    }
 
-          const ref = zCol.doc();
-          batchZ.set(ref, {
-            type: tmpl.type || 'ZOMBIE',
-            kind: tmpl.kind || 'walker',
-            hp: tmpl.baseHp ?? 60,
-            alive: true,
-            pos: { x, y },
-            spawnedAt: admin.firestore.FieldValue.serverTimestamp(),
-          });
+    if (humanSpawns.length > 0) {
+      await spawnWriter.spawnHumanNpcs(gameId, humanSpawns);
+    }
 
-          spawned += 1;
-        }
+    // ----- Items (light scatter) -----
+    const ITEM_DENSITY = 0.015; // ~1.5% of tiles
+    const ITEM_MIN = 5;
+    const ITEM_MAX = 60;
 
-        if (spawned > 0) {
-          await batchZ.commit();
-        }
-      }
+    let desiredItems = Math.floor(totalTiles * ITEM_DENSITY);
+    desiredItems = Math.max(ITEM_MIN, Math.min(ITEM_MAX, desiredItems));
+
+    const itemSpawns = [];
+    let itemSafety = 0;
+    let spawnedI = 0;
+    const maxTriesI = desiredItems * 30;
+
+    while (spawnedI < desiredItems && itemSafety < maxTriesI) {
+      itemSafety += 1;
+
+      const x = Math.floor(Math.random() * width);
+      const y = Math.floor(Math.random() * height);
+      const row = rows[y];
+      if (!row) continue;
+
+      const ch = row.charAt(x);
+      if (ch === TILES.WATER) continue;
+
+      itemSpawns.push({ x, y, kind: 'GENERIC' });
+      spawnedI += 1;
+    }
+
+    if (itemSpawns.length > 0) {
+      await spawnWriter.spawnItems(gameId, itemSpawns);
     }
   }
 
