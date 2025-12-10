@@ -19,6 +19,60 @@ const ENTITY_CONFIG = {
   ITEM_ARMOR_GENERIC: item.ITEM_ARMOR_GENERIC,
 };
 
+// Internal helper: map (type, kind) → registry key.
+function resolveByTypeKind(type, kind) {
+  if (!type) return null;
+  const upType = String(type).toUpperCase();
+  const upKind = String(kind || 'DEFAULT').toUpperCase();
+
+  if (upType === 'PLAYER') {
+    return ENTITY_CONFIG.PLAYER;
+  }
+
+  if (upType === 'HUMAN') {
+    if (upKind === 'CIVILIAN' || upKind === 'DEFAULT') return ENTITY_CONFIG.HUMAN_CIVILIAN;
+  }
+
+  if (upType === 'ZOMBIE') {
+    if (upKind === 'WALKER' || upKind === 'DEFAULT') return ENTITY_CONFIG.ZOMBIE_WALKER;
+  }
+
+  if (upType === 'ITEM') {
+    if (upKind === 'GENERIC' || upKind === 'DEFAULT') return ENTITY_CONFIG.ITEM_GENERIC;
+    if (upKind === 'WEAPON' || upKind === 'WEAPON_GENERIC') return ENTITY_CONFIG.ITEM_WEAPON_GENERIC;
+    if (upKind === 'ARMOR' || upKind === 'ARMOR_GENERIC') return ENTITY_CONFIG.ITEM_ARMOR_GENERIC;
+  }
+
+  return null;
+}
+
+/**
+ * Flexible resolver used by the rest of the backend.
+ *
+ * Supported call shapes:
+ *  - resolveEntityConfig('PLAYER')
+ *  - resolveEntityConfig('ZOMBIE', 'WALKER')
+ *  - resolveEntityConfig({ type: 'ZOMBIE', kind: 'walker' })
+ */
+function resolveEntityConfig(a, b) {
+  // Object with type/kind (e.g. Firestore doc)
+  if (a && typeof a === 'object') {
+    return resolveByTypeKind(a.type, a.kind);
+  }
+
+  // type + kind
+  if (typeof a === 'string' && typeof b === 'string') {
+    return resolveByTypeKind(a, b);
+  }
+
+  // single registry key
+  if (typeof a === 'string') {
+    return ENTITY_CONFIG[a] || null;
+  }
+
+  return null;
+}
+
 /**
  * Look up a concrete entity config by registry key.
  * Returns null if the key is unknown.
@@ -52,4 +106,5 @@ module.exports = {
   ENTITY_CONFIG,
   getEntityConfig,
   getEntityConfigOrThrow,
+  resolveEntityConfig,   // ← export this so everyone else can use it
 };

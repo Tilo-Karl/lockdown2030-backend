@@ -8,7 +8,15 @@ module.exports = function makeStateReader({ db, state }) {
       return snap.exists ? snap.data() : null;
     },
 
+    /**
+     * Legacy helper. If state.mapRef is not wired, this safely returns null
+     * instead of throwing on undefined.mapRef(...).
+     */
     async getMap(mapId) {
+      if (typeof state.mapRef !== 'function') {
+        // No dedicated maps collection wired in state.js right now.
+        return null;
+      }
       const snap = await state.mapRef(mapId).get();
       return snap.exists ? snap.data() : null;
     },
@@ -28,6 +36,16 @@ module.exports = function makeStateReader({ db, state }) {
 
     gameRef(gameId) {
       return state.gameRef(gameId);
+    },
+
+    /**
+     * Pass-through for grid size so tick-zombies can call reader.readGridSize.
+     */
+    async readGridSize(gameId, fallback = { w: 32, h: 32 }) {
+      if (typeof state.readGridSize === 'function') {
+        return state.readGridSize(gameId, fallback);
+      }
+      return fallback;
     },
   };
 };

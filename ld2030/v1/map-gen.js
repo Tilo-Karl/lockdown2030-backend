@@ -129,7 +129,7 @@ function generateMap({
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
 
-  // Build terrainPalette from TILE_META so colors come from config-tiles.
+  // Build terrainPalette from TILE_META so colors come from config-tile.
   const terrainPalette = {};
   Object.values(TILES).forEach((code) => {
     const meta = TILE_META[code];
@@ -240,7 +240,7 @@ module.exports = {
 //        meta.passableChars / spawn rules
 //        meta.buildings   : all buildings (special + generic)
 //        meta.buildingPalette : from MAP.BUILDING_PALETTE
-//        meta.terrainPalette  : from TILE_META in config-tiles.js (ROAD/BUILD/PARK/…)
+//        meta.terrainPalette  : from TILE_META in config-tile.js (ROAD/BUILD/PARK/…)
 //        meta.terrain[]   : same as data[], used by client for terrain lookup
 //
 // 4) Firestore write (state.js)
@@ -283,7 +283,7 @@ module.exports = {
 //   • Change "city feel" (roads, parks, water, zoning) in ./city-layout.js.
 //   • Change building clustering / zoning behaviour here in map-gen.js
 //     (zonePools, special building logic, etc.).
-//   • Any new terrain type → update TILES and TILE_META in config/config-tiles.js
+//   • Any new terrain type → update TILES and TILE_META in config/config-tile.js
 //     and make sure city-layout + isPassableChar() + legend are in sync.
 //
 // This comment is the single source of truth for how maps are generated end-to-end.
