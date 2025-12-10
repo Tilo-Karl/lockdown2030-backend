@@ -1,5 +1,4 @@
 // ld2030/v1/engine/engine.js
-const { PLAYER } = require('../config');
 // Core game logic: takes actions, applies rules, calls state-writer.
 
 function makeEngine({ reader, writer }) {
@@ -55,6 +54,7 @@ function makeEngine({ reader, writer }) {
     };
   }
 
+  // Player vs player attack routed via state-writer.attackPlayer → attackEntity.
   async function handleAttack({ gameId = 'lockdown2030', uid, targetUid }) {
     if (!uid) throw new Error('ATTACK: uid is required');
     if (!targetUid) throw new Error('ATTACK: targetUid is required');
@@ -63,8 +63,7 @@ function makeEngine({ reader, writer }) {
       gameId,
       attackerUid: uid,
       targetUid,
-      apCost: PLAYER.ATTACK_AP_COST,
-      damage: PLAYER.ATTACK_DAMAGE,
+      // damage / apCost come from unified entity config by default
     });
 
     return {

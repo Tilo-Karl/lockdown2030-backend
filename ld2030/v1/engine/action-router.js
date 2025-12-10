@@ -1,10 +1,10 @@
 // ld2030/v1/engine/action-router.js
-// Small layer that exposes nice helpers per action type.
 
 function makeActionRouter({ engine, writer }) {
   if (!engine) throw new Error('action-router: engine is required');
   if (!writer) throw new Error('action-router: writer is required');
 
+  // MOVE – still goes through the core engine
   async function handleMove({ uid, gameId = 'lockdown2030', dx = 0, dy = 0 }) {
     return engine.processAction({
       type: 'MOVE',
@@ -15,34 +15,29 @@ function makeActionRouter({ engine, writer }) {
     });
   }
 
-  async function handleAttack({ uid, targetUid, gameId = 'lockdown2030' }) {
-    return engine.processAction({
-      type: 'ATTACK',
-      uid,
-      targetUid,
-      gameId,
-    });
-  }
-
-  async function handleAttackZombie({
+  // Generic entity attack – single entry point for all future combat
+  async function handleAttackEntity({
     uid,
-    zombieId,
+    targetType,
+    targetId,
     gameId = 'lockdown2030',
+    damage,
+    apCost,
   }) {
-    return writer.attackZombie({
+    return writer.attackEntity({
       gameId,
-      attackerUid: uid,
-      zombieId,
+      attackerType: 'PLAYER',
+      attackerId: uid,
+      targetType,
+      targetId,
+      overrideDamage: damage,
+      overrideApCost: apCost,
     });
   }
-
-  // async function handleAttack(args) { ... }
-  // async function handleEnterBuilding(args) { ... }
 
   return {
     handleMove,
-    handleAttack,
-    handleAttackZombie,
+    handleAttackEntity,
   };
 }
 

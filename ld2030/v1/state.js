@@ -8,6 +8,8 @@ module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
   const playersCol = (gameId) => gameRef(gameId).collection('players');
   const zombiesCol = (gameId) => gameRef(gameId).collection('zombies');
+  const npcsCol    = (gameId) => gameRef(gameId).collection('npcs');
+  const itemsCol   = (gameId) => gameRef(gameId).collection('items');
 
   /**
    * Create/overwrite the map (only if missing or force=true) and stamp game meta.
@@ -65,19 +67,21 @@ module.exports = function makeState(db, admin) {
         round: admin.firestore.FieldValue.increment(0) || 1,
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
         // small, optional mirror of map meta (handy for clients)
-        mapMeta: mapMeta ? {
-          version: mapMeta.version,
-          lab: mapMeta.lab || null,
-          center: mapMeta.center || null,
-          terrain: mapMeta.terrain || null,
-          terrainPalette: mapMeta.terrainPalette || null,
-          // Never write undefined into Firestore; use null if absent.
-          passableChars: mapMeta.passableChars ?? null,
-          params: mapMeta.params ?? null,
-          buildings: mapMeta.buildings || [],
-          buildingPalette: mapMeta.buildingPalette || null,
-          tileMeta: tileMetaForFirestore,
-        } : admin.firestore.FieldValue.delete(),
+        mapMeta: mapMeta
+          ? {
+              version: mapMeta.version,
+              lab: mapMeta.lab || null,
+              center: mapMeta.center || null,
+              terrain: mapMeta.terrain || null,
+              terrainPalette: mapMeta.terrainPalette || null,
+              // Never write undefined into Firestore; use null if absent.
+              passableChars: mapMeta.passableChars ?? null,
+              params: mapMeta.params ?? null,
+              buildings: mapMeta.buildings || [],
+              buildingPalette: mapMeta.buildingPalette || null,
+              tileMeta: tileMetaForFirestore,
+            }
+          : admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -183,6 +187,8 @@ module.exports = function makeState(db, admin) {
     gameRef,
     playersCol,
     zombiesCol,
+    npcsCol,
+    itemsCol,
     writeMapAndGame,
     readGridSize,
   };

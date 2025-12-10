@@ -1,7 +1,18 @@
 // ld2030/v1/tick/tick-player.js
 // Per-player tick logic (AP regen, etc.) used by the TickEngine.
 
-const { PLAYER, TICK } = require('../config');
+
+const { TICK } = require('../config');
+const { resolveEntityConfig } = require('../entity');
+
+// Resolve player combat/regeneration defaults from unified entity config
+const PLAYER_CONFIG = resolveEntityConfig('PLAYER', 'DEFAULT') || {};
+const PLAYER = {
+  START_HP: PLAYER_CONFIG.baseHp ?? PLAYER_CONFIG.maxHp ?? 100,
+  MAX_HP: PLAYER_CONFIG.maxHp ?? PLAYER_CONFIG.baseHp ?? 100,
+  START_AP: PLAYER_CONFIG.startAp ?? PLAYER_CONFIG.maxAp ?? 3,
+  MAX_AP: PLAYER_CONFIG.maxAp ?? PLAYER_CONFIG.startAp ?? 3,
+};
 
 /**
  * Factory for player tick logic.
@@ -15,9 +26,9 @@ function makePlayerTicker({ reader, writer }) {
   if (!writer) throw new Error('makePlayerTicker: writer is required');
 
   const apRegen = Number(TICK?.PLAYER?.AP_REGEN_PER_TICK ?? 1);
-  const maxAp = Number(PLAYER?.MAX_AP ?? PLAYER?.START_AP ?? 3);
+  const maxAp = Number.isFinite(PLAYER.MAX_AP) ? Number(PLAYER.MAX_AP) : Number(PLAYER.START_AP ?? 3);
   const hpRegen = Number(TICK?.PLAYER?.HP_REGEN_PER_TICK ?? 1);
-  const maxHp = Number(PLAYER?.MAX_HP ?? PLAYER?.START_HP ?? PLAYER?.START_HP ?? 3);
+  const maxHp = Number.isFinite(PLAYER.MAX_HP) ? Number(PLAYER.MAX_HP) : Number(PLAYER.START_HP ?? 100);
 
   /**
    * Apply one tick of player logic for all players in a game.

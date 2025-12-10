@@ -1,30 +1,39 @@
 // ld2030/v1/npc/zombie-config.js
-// Central place to define zombie types + base stats for Lockdown 2030.
+// Central place to define zombie types + behaviour tuning for Lockdown 2030.
 //
 // These are *templates* used when spawning zombies. The spawner copies
 // these values into each Firestore zombie document (instance).
 //
-// When you want to tune zombies (more HP, more damage, etc.), do it here.
+// Base stats (hp, damage, etc.) now come from the unified entity config,
+// so all entities share the same source of truth for core numbers.
+
+const { resolveEntityConfig } = require('../entity');
+
+// Pull the base walker stats from the unified entity config.
+// If the config is missing for some reason, fall back to sensible defaults.
+const WALKER_BASE = resolveEntityConfig('ZOMBIE', 'WALKER') || {
+  type: 'ZOMBIE',
+  kind: 'walker',
+  baseHp: 60,
+  biteDamage: 10,
+  hitChance: 0.8,
+};
 
 const ZOMBIES = {
   WALKER: {
-    // Identity
-    type: 'ZOMBIE',
-    kind: 'walker',
+    // Core identity + stats from the entity config.
+    ...WALKER_BASE,
 
-    // Core stats
-    baseHp: 60,           // starting HP for a fresh walker
-    biteDamage: 10,       // damage per successful bite
-    hitChance: 0.8,        // 80% chance to land a bite (used for reactions + ticks)
-
-    // Behaviour knobs (for later)
-    aggroRange: 4,        // tiles within which they notice a player
-    maxRoamDistance: 8,   // how far they wander from their spawn tile
+    // Behaviour knobs (tuned here, independent of base stats).
+    // Tiles within which they notice a player.
+    aggroRange: 4,
+    // How far they wander from their spawn tile.
+    maxRoamDistance: 8,
   },
 
   // Add more types later, e.g.:
-  // RUNNER: { ... },
-  // BRUTE:  { ... },
+  // RUNNER: { ...resolveEntityConfig('ZOMBIE', 'RUNNER'), aggroRange: 6, maxRoamDistance: 10 },
+  // BRUTE:  { ...resolveEntityConfig('ZOMBIE', 'BRUTE'),  aggroRange: 3, maxRoamDistance: 6  },
 };
 
 module.exports = ZOMBIES;

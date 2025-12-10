@@ -1,6 +1,8 @@
 // ld2030/v1/config/config-game.js
 // Grid, map generation & player constants for Lockdown 2030 backend
 
+const { PLAYER } = require('../entity/config-entity');
+
 // --- Grid settings ---
 const GRID = {
   // Hard bounds the backend will accept
@@ -135,15 +137,6 @@ const MAP = {
 
   // Tiles where we never spawn players directly (can refine later with building rules).
   SPAWN_AVOID: ['WATER'],
-};
-
-// --- Player parameters ---
-const PLAYER = {
-  START_HP: 100,
-  START_AP: 3,
-  MOVE_AP_COST: 1,
-  ATTACK_AP_COST: 1,
-  ATTACK_DAMAGE: 10,
 };
 
 // --- Zombie parameters ---

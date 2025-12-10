@@ -3,6 +3,7 @@
 // Later this will handle movement, aggro, attacks, etc.
 
 const { TICK } = require('../config');
+const { resolveEntityConfig } = require('../entity');
 
 function makeZombieTicker({ reader, writer }) {
   if (!reader) throw new Error('zombie-ticker: reader is required');
@@ -51,6 +52,8 @@ function makeZombieTicker({ reader, writer }) {
       total += 1;
       const z = doc.data() || {};
 
+      const baseCfg = resolveEntityConfig('ZOMBIE', z.kind || 'WALKER') || {};
+
       if (z.alive === false) {
         continue;
       }
@@ -61,20 +64,23 @@ function makeZombieTicker({ reader, writer }) {
       const x = typeof pos.x === 'number' ? pos.x : 0;
       const y = typeof pos.y === 'number' ? pos.y : 0;
 
-      // 4-directional random move (or stay put)
+      // Movement: use config roam distance if provided, else fallback to random step
+      const roam = typeof baseCfg.maxRoamDistance === 'number' ? baseCfg.maxRoamDistance : 1;
+
+      // Generate candidate moves: stay + 4 dirs
       const dirs = [
-        { dx: 0, dy: 0 },  // stay
+        { dx: 0, dy: 0 },
         { dx: 1, dy: 0 },
         { dx: -1, dy: 0 },
         { dx: 0, dy: 1 },
         { dx: 0, dy: -1 },
       ];
 
+      // Choose a movement limited by roam
       const choice = dirs[Math.floor(Math.random() * dirs.length)];
-      let newX = x + choice.dx;
-      let newY = y + choice.dy;
+      let newX = x + Math.max(-roam, Math.min(choice.dx, roam));
+      let newY = y + Math.max(-roam, Math.min(choice.dy, roam));
 
-      // If we know the grid size, clamp movement so zombies stay on the map
       if (Number.isFinite(width) && Number.isFinite(height)) {
         newX = Math.max(0, Math.min(width - 1, newX));
         newY = Math.max(0, Math.min(height - 1, newY));
@@ -85,8 +91,8 @@ function makeZombieTicker({ reader, writer }) {
         moved += 1;
       }
 
-      // Directly update the zombie document with the new position
-      await doc.ref.update({
+      // Persist the new position via the shared state writer
+      await writer.updateZombie(gameId, doc.id, {
         pos: {
           x: newX,
           y: newY,
