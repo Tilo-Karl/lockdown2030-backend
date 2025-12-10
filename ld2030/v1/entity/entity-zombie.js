@@ -1,7 +1,7 @@
 // ld2030/v1/entity/entity-zombie.js
 // Zombie base + concrete zombie kinds.
 
-const { ACTOR_BASE } = require('./config-entity');
+const { ACTOR_BASE } = require('./entity-base');
 
 // Shared zombie base. Concrete kinds (walker, runner, etc.) extend this.
 const ZOMBIE_BASE = {

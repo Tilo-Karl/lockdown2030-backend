@@ -1,4 +1,4 @@
-// ld2030/v1/entity/config-entity.js
+// ld2030/v1/entity/entity-base.js
 // Core base templates for all entities in Lockdown 2030 backend.
 
 // Everything in the world derives conceptually from this.

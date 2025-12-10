@@ -1,25 +1,36 @@
 // ld2030/v1/entity/index.js
 // Single entry point for all entity configs.
 
-const base = require('./config-entity');
-const human = require('./entity-human');
+const base   = require('./entity-base');
+const human  = require('./entity-human');
 const zombie = require('./entity-zombie');
-const item = require('./entity-item');
+const raider = require('./npc-raider');
+const trader = require('./npc-trader');
+const items  = require('./items/entity-item');
 
 // Unified registry so other code can look up configs by key.
 const ENTITY_CONFIG = {
-  // Actors
+  // Actors – players & humans
   PLAYER: human.PLAYER,
   HUMAN_CIVILIAN: human.HUMAN_CIVILIAN,
+  HUMAN_RAIDER: raider.NPC_HUMAN_RAIDER,
+  HUMAN_TRADER: trader.NPC_HUMAN_TRADER,
+
+  // Zombies
   ZOMBIE_WALKER: zombie.ZOMBIE_WALKER,
 
-  // Items
-  ITEM_GENERIC: item.ITEM_GENERIC,
-  ITEM_WEAPON_GENERIC: item.ITEM_WEAPON_GENERIC,
-  ITEM_ARMOR_GENERIC: item.ITEM_ARMOR_GENERIC,
+  // Item bases
+  ITEM_GENERIC: items.ITEM_GENERIC,
+  ITEM_WEAPON_GENERIC: items.ITEM_WEAPON_GENERIC,
+  ITEM_ARMOR_GENERIC: items.ITEM_ARMOR_GENERIC,
+
+  // Concrete “building-flavoured” items
+  ITEM_WEAPON_POLICE_PISTOL: items.ITEM_WEAPON_POLICE_PISTOL,
+  ITEM_ARMOR_POLICE_VEST: items.ITEM_ARMOR_POLICE_VEST,
+  ITEM_WEAPON_SHOP_KNIFE: items.ITEM_WEAPON_SHOP_KNIFE,
 };
 
-// Internal helper: map (type, kind) → registry key.
+// Internal helper: map (type, kind) → concrete config.
 function resolveByTypeKind(type, kind) {
   if (!type) return null;
   const upType = String(type).toUpperCase();
@@ -31,6 +42,8 @@ function resolveByTypeKind(type, kind) {
 
   if (upType === 'HUMAN') {
     if (upKind === 'CIVILIAN' || upKind === 'DEFAULT') return ENTITY_CONFIG.HUMAN_CIVILIAN;
+    if (upKind === 'RAIDER') return ENTITY_CONFIG.HUMAN_RAIDER;
+    if (upKind === 'TRADER') return ENTITY_CONFIG.HUMAN_TRADER;
   }
 
   if (upType === 'ZOMBIE') {
@@ -41,6 +54,11 @@ function resolveByTypeKind(type, kind) {
     if (upKind === 'GENERIC' || upKind === 'DEFAULT') return ENTITY_CONFIG.ITEM_GENERIC;
     if (upKind === 'WEAPON' || upKind === 'WEAPON_GENERIC') return ENTITY_CONFIG.ITEM_WEAPON_GENERIC;
     if (upKind === 'ARMOR' || upKind === 'ARMOR_GENERIC') return ENTITY_CONFIG.ITEM_ARMOR_GENERIC;
+
+    // Building-flavoured item kinds
+    if (upKind === 'POLICE_WEAPON') return ENTITY_CONFIG.ITEM_WEAPON_POLICE_PISTOL;
+    if (upKind === 'POLICE_ARMOR') return ENTITY_CONFIG.ITEM_ARMOR_POLICE_VEST;
+    if (upKind === 'SHOP_WEAPON') return ENTITY_CONFIG.ITEM_WEAPON_SHOP_KNIFE;
   }
 
   return null;
@@ -52,6 +70,7 @@ function resolveByTypeKind(type, kind) {
  * Supported call shapes:
  *  - resolveEntityConfig('PLAYER')
  *  - resolveEntityConfig('ZOMBIE', 'WALKER')
+ *  - resolveEntityConfig('ITEM', 'POLICE_WEAPON')
  *  - resolveEntityConfig({ type: 'ZOMBIE', kind: 'walker' })
  */
 function resolveEntityConfig(a, b) {
@@ -100,11 +119,13 @@ module.exports = {
   // Concrete entities
   ...human,
   ...zombie,
-  ...item,
+  ...raider,
+  ...trader,
+  ...items,
 
   // Registry
   ENTITY_CONFIG,
   getEntityConfig,
   getEntityConfigOrThrow,
-  resolveEntityConfig,   // ← export this so everyone else can use it
+  resolveEntityConfig,
 };

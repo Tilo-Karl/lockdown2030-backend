@@ -1,7 +1,7 @@
 // ld2030/v1/entity/entity-human.js
 // Player + generic human NPC configs.
 
-const { ACTOR_BASE } = require('./config-entity');
+const { ACTOR_BASE } = require('./entity-base');
 
 // Player-controlled human.
 const PLAYER = {

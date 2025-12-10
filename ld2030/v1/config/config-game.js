@@ -1,7 +1,7 @@
 // ld2030/v1/config/config-game.js
 // Grid, map generation & player constants for Lockdown 2030 backend
 
-const { PLAYER } = require('../entity/config-entity');
+const { PLAYER } = require('../entity/entity-base');
 
 // --- Grid settings ---
 const GRID = {
