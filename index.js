@@ -10,8 +10,7 @@ const makeGameEngine  = require('./ld2030/v1/engine');
 const registerInitGame     = require('./ld2030/v1/init-game');
 const registerJoinGame     = require('./ld2030/v1/join-game');
 const registerMovePlayer   = require('./ld2030/v1/move-player');
-const registerAttackPlayer = require('./ld2030/v1/attack-player');
-const registerAttackZombie = require('./ld2030/v1/attack-zombie');
+const registerAttackEntity = require('./ld2030/v1/attack-entity');
 
 // ---------------------------------------------
 // Firebase setup
@@ -49,8 +48,7 @@ registerJoinGame(app, ctx);
 
 // Actions (movement & combat) default to engine
 registerMovePlayer(app, { engine: gameEngine, base: BASE });
-registerAttackPlayer(app, { engine: gameEngine, base: BASE });
-registerAttackZombie(app, { engine: gameEngine, base: BASE });
+registerAttackEntity(app, { engine: gameEngine, base: BASE });
 
 app.post(`${BASE}/tick-game`, async (req, res) => {
   try {
