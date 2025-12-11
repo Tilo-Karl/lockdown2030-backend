@@ -1,34 +1,25 @@
 // ld2030/v1/entity/npc-raider.js
-// Hostile human NPC (raider)
+// Hostile human raider NPCs.
 
 const { ACTOR_BASE } = require('./entity-base');
 
-const HUMAN_RAIDER = {
+const NPC_HUMAN_RAIDER = {
   ...ACTOR_BASE,
-  type: 'HUMAN',
+  type: 'HUMAN_NPC',
   species: 'human',
-  kind: 'raider',
-  tags: ['npc', 'human', 'hostile', 'raider'],
-
+  kind: 'RAIDER',
   baseHp: 90,
-  baseAp: 2,
-  moveApCost: 1,
-  attackApCost: 1,
-
+  baseAp: 3,
   baseAttackDamage: 12,
-  baseHitChance: 0.7,
-  baseDefense: 0,
-
-  visionRange: 6,
+  attackApCost: 1,
+  baseHitChance: 0.8,
+  baseArmor: 1,
+  visionRange: 7,
   aggroRange: 5,
-
-  hpPerLevel: 3,
-  attackPerLevel: 1,
-  defensePerLevel: 0.3,
-
-  xpReward: 8,
+  faction: 'raider',
+  tags: ['role:raider', 'faction:raider', 'hostile:true'],
 };
 
 module.exports = {
-  HUMAN_RAIDER,
+  NPC_HUMAN_RAIDER,
 };

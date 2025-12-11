@@ -28,6 +28,10 @@ const ENTITY_CONFIG = {
   ITEM_WEAPON_POLICE_PISTOL: items.ITEM_WEAPON_POLICE_PISTOL,
   ITEM_ARMOR_POLICE_VEST: items.ITEM_ARMOR_POLICE_VEST,
   ITEM_WEAPON_SHOP_KNIFE: items.ITEM_WEAPON_SHOP_KNIFE,
+  // SHOP_MISC maps to any of the misc items
+  ITEM_SHOP_MISC_BATTERY: items.MISC_BATTERY,
+  ITEM_SHOP_MISC_TOOLKIT: items.MISC_TOOLKIT,
+  ITEM_SHOP_MISC_WATER: items.MISC_WATER_BOTTLE,
 };
 
 // Internal helper: map (type, kind) → concrete config.
@@ -55,10 +59,11 @@ function resolveByTypeKind(type, kind) {
     if (upKind === 'WEAPON' || upKind === 'WEAPON_GENERIC') return ENTITY_CONFIG.ITEM_WEAPON_GENERIC;
     if (upKind === 'ARMOR' || upKind === 'ARMOR_GENERIC') return ENTITY_CONFIG.ITEM_ARMOR_GENERIC;
 
-    // Building-flavoured item kinds
+    // Building-flavoured item kinds (used by spawn)
     if (upKind === 'POLICE_WEAPON') return ENTITY_CONFIG.ITEM_WEAPON_POLICE_PISTOL;
-    if (upKind === 'POLICE_ARMOR') return ENTITY_CONFIG.ITEM_ARMOR_POLICE_VEST;
-    if (upKind === 'SHOP_WEAPON') return ENTITY_CONFIG.ITEM_WEAPON_SHOP_KNIFE;
+    if (upKind === 'POLICE_ARMOR')  return ENTITY_CONFIG.ITEM_ARMOR_POLICE_VEST;
+    if (upKind === 'SHOP_WEAPON')   return ENTITY_CONFIG.ITEM_WEAPON_SHOP_KNIFE;
+    if (upKind === 'SHOP_MISC')     return ENTITY_CONFIG.ITEM_SHOP_MISC_BATTERY; // any misc is fine
   }
 
   return null;
@@ -92,18 +97,10 @@ function resolveEntityConfig(a, b) {
   return null;
 }
 
-/**
- * Look up a concrete entity config by registry key.
- * Returns null if the key is unknown.
- */
 function getEntityConfig(key) {
   return ENTITY_CONFIG[key] || null;
 }
 
-/**
- * Look up a concrete entity config by registry key.
- * Throws a clear error if the key is unknown.
- */
 function getEntityConfigOrThrow(key) {
   const cfg = ENTITY_CONFIG[key];
   if (!cfg) {

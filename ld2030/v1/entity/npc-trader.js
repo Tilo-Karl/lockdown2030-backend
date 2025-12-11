@@ -1,33 +1,25 @@
 // ld2030/v1/entity/npc-trader.js
-// Non-hostile human NPC (trader / merchant)
+// Mostly non-combat trader NPCs.
 
 const { ACTOR_BASE } = require('./entity-base');
 
-const HUMAN_TRADER = {
+const NPC_HUMAN_TRADER = {
   ...ACTOR_BASE,
-  type: 'HUMAN',
+  type: 'HUMAN_NPC',
   species: 'human',
-  kind: 'trader',
-  tags: ['npc', 'human', 'neutral', 'trader'],
-
-  baseHp: 100,
-  baseAp: 1,
-  moveApCost: 1,
-  attackApCost: 0,       // cannot attack
-
-  baseAttackDamage: 0,
-  baseDefense: 1,
-
-  visionRange: 5,
-  aggroRange: 0,        // never aggro
-
-  hpPerLevel: 2,
-  attackPerLevel: 0,
-  defensePerLevel: 0.2,
-
-  xpReward: 0,
+  kind: 'TRADER',
+  baseHp: 85,
+  baseAp: 2,
+  baseAttackDamage: 4,
+  attackApCost: 1,
+  baseHitChance: 0.6,
+  baseArmor: 0,
+  visionRange: 6,
+  aggroRange: 0, // basically never auto-aggro
+  faction: 'trader',
+  tags: ['role:trader', 'faction:trader', 'hostile:false'],
 };
 
 module.exports = {
-  HUMAN_TRADER,
+  NPC_HUMAN_TRADER,
 };

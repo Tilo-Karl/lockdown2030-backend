@@ -16,7 +16,8 @@ const ACTOR_BASE = {
   moveApCost: 1,
   attackApCost: 1,
   baseAttackDamage: 1,
-  baseHitChance: 0.8,   // unified accuracy stat (players + NPCs + zombies)
+  baseHitChance: 0.8,   // unified accuracy (players + NPCs + zombies)
+  baseArmor: 0,
   baseDefense: 0,
   baseSpeed: 1,
   visionRange: 5,
@@ -37,13 +38,17 @@ const ITEM_BASE = {
   species: 'object',
   destructible: true,
   baseHp: 1,
+  weight: 1,
+  value: 0,
+  armor: 0,
+  damage: 0,
 };
 
 // Base for all weapons (bonus to attack / accuracy).
 const ITEM_WEAPON_BASE = {
   ...ITEM_BASE,
   slot: 'weapon',
-  attackBonus: 0,
+  damage: 2,
   hitChanceBonus: 0,
 };
 
@@ -51,7 +56,7 @@ const ITEM_WEAPON_BASE = {
 const ITEM_ARMOR_BASE = {
   ...ITEM_BASE,
   slot: 'body',          // future: head / legs / etc.
-  armorBonus: 0,
+  armor: 1,
   hpBonus: 0,
 };
 

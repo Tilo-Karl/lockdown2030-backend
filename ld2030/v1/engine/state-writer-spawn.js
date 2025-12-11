@@ -1,5 +1,6 @@
 // ld2030/v1/engine/state-writer-spawn.js
 // All spawn helpers (zombies, human NPCs, items) in one place.
+// NOW: every spawned entity gets full combat stats on the doc.
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -11,6 +12,76 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
   const { zombiesCol, npcsCol, itemsCol } = state;
+
+  // Helpers to normalize config → final stats on doc -------------------------
+
+  function buildActorDocFromConfig(tmpl, extra) {
+    const baseHp         = Number.isFinite(tmpl.baseHp) ? tmpl.baseHp : 60;
+    const baseAp         = Number.isFinite(tmpl.baseAp) ? tmpl.baseAp : 0;
+    const attackDamage   =
+      Number.isFinite(tmpl.baseAttackDamage) ? tmpl.baseAttackDamage :
+      Number.isFinite(tmpl.attackDamage)     ? tmpl.attackDamage     : 5;
+    const attackApCost   =
+      Number.isFinite(tmpl.attackApCost) ? tmpl.attackApCost : 1;
+    const hitChance      =
+      Number.isFinite(tmpl.baseHitChance) ? tmpl.baseHitChance :
+      Number.isFinite(tmpl.hitChance)     ? tmpl.hitChance     : 1.0;
+    const armor          =
+      Number.isFinite(tmpl.baseArmor) ? tmpl.baseArmor :
+      Number.isFinite(tmpl.armor)     ? tmpl.armor     : 0;
+
+    return {
+      type:    tmpl.type    || 'UNKNOWN',
+      kind:    tmpl.kind    || 'DEFAULT',
+      species: tmpl.species || 'unknown',
+      tags:    Array.isArray(tmpl.tags) ? tmpl.tags : [],
+      hp:      baseHp,
+      maxHp:   baseHp,
+      ap:      baseAp,
+      attackDamage,
+      attackApCost,
+      hitChance,
+      armor,
+      alive:   true,
+      ...extra,
+      // keep original config hooks if needed later
+      baseHp,
+      baseAp,
+      baseAttackDamage: attackDamage,
+      baseAttackApCost: attackApCost,
+      baseArmor: armor,
+      spawnedAt: serverTs(),
+      updatedAt: serverTs(),
+    };
+  }
+
+  function buildItemDocFromConfig(tmpl, extra) {
+    const baseHp   = Number.isFinite(tmpl.baseHp) ? tmpl.baseHp : null;
+    const armor    = Number.isFinite(tmpl.armor) ? tmpl.armor : 0;
+    const damage   = Number.isFinite(tmpl.damage) ? tmpl.damage : 0;
+    const weight   = Number.isFinite(tmpl.weight) ? tmpl.weight : 1;
+    const value    = Number.isFinite(tmpl.value) ? tmpl.value : 0;
+    const durable  = Number.isFinite(tmpl.durability) ? tmpl.durability : null;
+
+    return {
+      type:    tmpl.type    || 'ITEM',
+      kind:    tmpl.kind    || 'GENERIC',
+      species: tmpl.species || 'object',
+      tags:    Array.isArray(tmpl.tags) ? tmpl.tags : [],
+      hp:      baseHp,
+      maxHp:   baseHp,
+      armor,
+      damage,
+      weight,
+      value,
+      durability: durable,
+      slot: tmpl.slot || null, // weapon/body/etc.
+      alive: baseHp == null ? null : baseHp > 0,
+      ...extra,
+      spawnedAt: serverTs(),
+      updatedAt: serverTs(),
+    };
+  }
 
   // ---------------------------------------------------------------------------
   // ZOMBIES
@@ -43,20 +114,12 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const kindKey = (spawn.kind || 'WALKER').toUpperCase();
       const tmpl = resolveEntityConfig('ZOMBIE', kindKey) || {};
 
-      const ref = col.doc();
-      batch.set(ref, {
-        id: ref.id,
-        type: tmpl.type || 'ZOMBIE',
-        kind: tmpl.kind || 'walker',
-        hp: tmpl.baseHp ?? 60,
-        maxHp: tmpl.baseHp ?? 60,
-        alive: true,
+      const doc = buildActorDocFromConfig(tmpl, {
         pos: { x, y },
-        attackDamage: tmpl.attackDamage ?? 5,
-        hitChance: tmpl.hitChance ?? 1.0,
-        spawnedAt: serverTs(),
       });
 
+      const ref = col.doc();
+      batch.set(ref, doc);
       count += 1;
     });
 
@@ -98,19 +161,13 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const kindKey = (spawn.kind || 'CIVILIAN').toUpperCase();
       const tmpl = resolveEntityConfig('HUMAN', kindKey) || {};
 
-      const ref = col.doc();
-      batch.set(ref, {
-        id: ref.id,
-        type: tmpl.type || 'HUMAN_NPC',
-        kind: tmpl.kind || 'CIVILIAN',
-        hp: tmpl.baseHp ?? 80,
-        maxHp: tmpl.baseHp ?? 80,
-        alive: true,
+      const doc = buildActorDocFromConfig(tmpl, {
         pos: { x, y },
         faction: tmpl.faction || 'neutral',
-        spawnedAt: serverTs(),
       });
 
+      const ref = col.doc();
+      batch.set(ref, doc);
       count += 1;
     });
 
@@ -152,20 +209,12 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const kindKey = (spawn.kind || 'GENERIC').toUpperCase();
       const tmpl = resolveEntityConfig('ITEM', kindKey) || {};
 
-      const ref = col.doc();
-      batch.set(ref, {
-        id: ref.id,
-        type: tmpl.type || 'ITEM',
-        kind: tmpl.kind || 'GENERIC',
-        hp: tmpl.baseHp ?? null,    // items can be destructible later
-        maxHp: tmpl.baseHp ?? null,
+      const doc = buildItemDocFromConfig(tmpl, {
         pos: { x, y },
-        weight: tmpl.weight ?? 1,
-        armor: tmpl.armor ?? 0,
-        damage: tmpl.damage ?? 0,
-        spawnedAt: serverTs(),
       });
 
+      const ref = col.doc();
+      batch.set(ref, doc);
       count += 1;
     });
 

@@ -1,41 +1,25 @@
 // ld2030/v1/entity/entity-zombie.js
-// Zombie base + concrete zombie kinds.
+// Zombie configs.
 
 const { ACTOR_BASE } = require('./entity-base');
 
-// Shared zombie base. Concrete kinds (walker, runner, etc.) extend this.
-const ZOMBIE_BASE = {
+const ZOMBIE_WALKER = {
   ...ACTOR_BASE,
   type: 'ZOMBIE',
   species: 'zombie',
-  tags: ['hostile'],
-
+  kind: 'WALKER',
   baseHp: 60,
-  baseAp: 0,           // zombies usually act on tick, not AP button presses
-  moveApCost: 1,
+  baseAp: 2,
+  baseAttackDamage: 8,
   attackApCost: 1,
-  baseAttackDamage: 10,
-  baseHitChance: 0.8,
-  baseDefense: 0,
-  baseSpeed: 1,
-  visionRange: 4,
+  baseHitChance: 0.75,
+  baseArmor: 0,
+  visionRange: 5,
   aggroRange: 4,
-
-  hpPerLevel: 0,
-  attackPerLevel: 0,
-  defensePerLevel: 0,
-  apPerLevel: 0,
-  xpReward: 10,
-};
-
-// For now we only have one concrete zombie kind: WALKER.
-const ZOMBIE_WALKER = {
-  ...ZOMBIE_BASE,
-  kind: 'walker',
-  tags: [...ZOMBIE_BASE.tags, 'zombie:walker'],
+  faction: 'undead',
+  tags: ['role:zombie', 'faction:undead', 'hostile:true'],
 };
 
 module.exports = {
-  ZOMBIE_BASE,
   ZOMBIE_WALKER,
 };

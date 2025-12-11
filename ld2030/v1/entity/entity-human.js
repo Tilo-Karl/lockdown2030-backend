@@ -1,56 +1,37 @@
 // ld2030/v1/entity/entity-human.js
-// Player + generic human NPC configs.
+// Player + baseline civilian humans.
 
 const { ACTOR_BASE } = require('./entity-base');
 
-// Player-controlled human.
+// Player (you)
 const PLAYER = {
   ...ACTOR_BASE,
   type: 'PLAYER',
   species: 'human',
-  tags: ['controllable', 'faction:survivor'],
-
+  kind: 'PLAYER',
   baseHp: 100,
   baseAp: 3,
-  moveApCost: 1,
-  attackApCost: 1,
   baseAttackDamage: 10,
-  baseHitChance: 0.8,
-  baseDefense: 0,
-  baseSpeed: 1,
-  visionRange: 6,
-  aggroRange: 0,
-
-  hpPerLevel: 5,
-  attackPerLevel: 1,
-  defensePerLevel: 0.5,
-  apPerLevel: 0,
-  xpReward: 0,
+  attackApCost: 1,
+  baseHitChance: 0.9,
+  baseArmor: 0,
+  tags: ['role:player', 'faction:survivor'],
 };
 
-// Generic human civilian / future human NPC base.
+// Generic civilian NPC
 const HUMAN_CIVILIAN = {
   ...ACTOR_BASE,
-  type: 'NPC',
+  type: 'HUMAN_NPC',
   species: 'human',
-  tags: ['civilian'],
-
+  kind: 'CIVILIAN',
   baseHp: 80,
   baseAp: 2,
-  moveApCost: 1,
-  attackApCost: 2,
   baseAttackDamage: 5,
-  baseHitChance: 0.5,
-  baseDefense: 0,
-  baseSpeed: 1,
-  visionRange: 5,
-  aggroRange: 0,
-
-  hpPerLevel: 3,
-  attackPerLevel: 0.5,
-  defensePerLevel: 0.2,
-  apPerLevel: 0,
-  xpReward: 5,
+  attackApCost: 1,
+  baseHitChance: 0.7,
+  baseArmor: 0,
+  faction: 'neutral',
+  tags: ['role:civilian', 'faction:neutral'],
 };
 
 module.exports = {
