@@ -4,3 +4,8 @@ curl -X POST "https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init
     "gameId": "lockdown2030",
     "mapId": "world-1"
   }'
+
+  curl -X POST \
+  "https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init-game" \
+  -H "Content-Type: application/json" \
+  -d '{"gameId":"lockdown2030","mapId":"world-1","force":true}'

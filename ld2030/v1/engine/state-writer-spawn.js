@@ -45,6 +45,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
       const ref = col.doc();
       batch.set(ref, {
+        id: ref.id,
         type: tmpl.type || 'ZOMBIE',
         kind: tmpl.kind || 'walker',
         hp: tmpl.baseHp ?? 60,
@@ -99,6 +100,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
       const ref = col.doc();
       batch.set(ref, {
+        id: ref.id,
         type: tmpl.type || 'HUMAN_NPC',
         kind: tmpl.kind || 'CIVILIAN',
         hp: tmpl.baseHp ?? 80,
@@ -152,6 +154,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
       const ref = col.doc();
       batch.set(ref, {
+        id: ref.id,
         type: tmpl.type || 'ITEM',
         kind: tmpl.kind || 'GENERIC',
         hp: tmpl.baseHp ?? null,    // items can be destructible later
