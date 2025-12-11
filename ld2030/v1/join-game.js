@@ -1,7 +1,14 @@
 // ld2030/v1/join-game.js
 // Mounts POST /api/ld2030/v1/join-game
 
-const { GRID, PLAYER } = require('./config');
+const { GRID } = require('./config');
+const { resolveEntityConfig } = require('./entity');
+
+// Resolve player defaults from unified entity config.
+// Falls back to sane constants if something is missing.
+const PLAYER_CONFIG = resolveEntityConfig('PLAYER') || {};
+const START_HP = Number.isFinite(PLAYER_CONFIG.baseHp) ? PLAYER_CONFIG.baseHp : 100;
+const START_AP = Number.isFinite(PLAYER_CONFIG.baseAp) ? PLAYER_CONFIG.baseAp : 50;
 
 module.exports = function registerJoinGame(app, { db, admin, state, base }) {
   const BASE = base || '/api/ld2030/v1';
@@ -57,8 +64,8 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
             return {
               x: p.pos.x,
               y: p.pos.y,
-              hp: p.hp ?? PLAYER.START_HP,
-              ap: p.ap ?? PLAYER.START_AP,
+              hp: Number.isFinite(p.hp) ? p.hp : START_HP,
+              ap: Number.isFinite(p.ap) ? p.ap : START_AP,
             };
           }
         }
@@ -69,8 +76,8 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
           userId: uid,
           displayName: displayName ?? 'Player',
           pos: spawn,
-          hp: PLAYER.START_HP,
-          ap: PLAYER.START_AP,
+          hp: START_HP,
+          ap: START_AP,
           alive: true,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         };
@@ -86,8 +93,8 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
         return {
           x: spawn.x,
           y: spawn.y,
-          hp: PLAYER.START_HP,
-          ap: PLAYER.START_AP,
+          hp: START_HP,
+          ap: START_AP,
         };
       });
 
