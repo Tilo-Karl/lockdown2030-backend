@@ -29,9 +29,34 @@ module.exports = function registerAttackEntity(app, { engine, base }) {
         apCost,
       });
 
+      // `result` is expected to be:
+      // { ok: true, attacker: { id, hp, ap, ... }, target: { id, hp, dead?, damage? } }
+      const attacker = result && result.attacker ? result.attacker : null;
+      const target   = result && result.target ? result.target : null;
+
+      const hpAfter =
+        target && Number.isFinite(target.hp) ? target.hp : undefined;
+
+      // Prefer explicit `dead` from writer; otherwise infer from hpAfter.
+      const dead =
+        target && typeof target.dead === 'boolean'
+          ? target.dead
+          : (typeof hpAfter === 'number' ? hpAfter <= 0 : undefined);
+
+      const dmg =
+        target && Number.isFinite(target.damage) ? target.damage : undefined;
+
       return res.json({
         ok: true,
-        ...result,
+        attackerUid: uid,
+        targetId: target ? target.id : targetId,
+        hit: true,          // for now, unified path always "hits" if it completes
+        damage: dmg,
+        hpAfter,
+        dead,
+        // Raw structs kept for future debugging / UI if needed; Codable will ignore extra keys.
+        attacker,
+        target,
       });
     } catch (e) {
       console.error('attack-entity error', e);

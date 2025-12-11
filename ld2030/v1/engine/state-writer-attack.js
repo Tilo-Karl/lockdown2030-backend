@@ -65,6 +65,10 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
     let targetTypeForReturn = null;
     let targetKindForReturn = null;
 
+    let damageForReturn = null;
+    let hitForReturn = null;
+    let deadForReturn = null;
+
     await db.runTransaction(async (tx) => {
       // Attacker: we currently only support the player as attacker.
       const attackerRef = state.playersCol(gameId).doc(attackerId);
@@ -111,10 +115,17 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
       const curHp = targetData.hp ?? 0;
       const newHp = Math.max(0, curHp - damage);
 
+      const didHit = newHp < curHp;
+      const isDead = newHp <= 0;
+
       // Track for return payload
       attackerHp = attackerData.hp ?? null;
       attackerAp = newAp;
       targetHp = newHp;
+
+      damageForReturn = damage;
+      hitForReturn = didHit;
+      deadForReturn = isDead;
 
       const attackerWrite = {
         ...attackerData,
@@ -150,8 +161,11 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
         type: targetTypeForReturn,
         kind: targetKindForReturn,
         hp: targetHp,
-        dead: targetHp === 0,
+        dead: deadForReturn,
       },
+      hit: hitForReturn,
+      damage: damageForReturn,
+      hpAfter: targetHp,
     };
   }
 
