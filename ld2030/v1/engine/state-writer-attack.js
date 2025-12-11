@@ -4,71 +4,103 @@
 const { resolveEntityConfig } = require('../entity');
 
 module.exports = function makeAttackStateWriter({ db, admin, state }) {
+  if (!db) throw new Error('state-writer-attack: db is required');
+  if (!admin) throw new Error('state-writer-attack: admin is required');
+  if (!state) throw new Error('state-writer-attack: state is required');
+
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  function colForType(gameId, type) {
-    if (type === 'PLAYER') return state.playersCol(gameId);
-    if (type === 'ZOMBIE') return state.zombiesCol(gameId);
-    if (type === 'HUMAN_NPC') return state.npcsCol(gameId);
-    if (type === 'ITEM') return state.itemsCol(gameId);
-    throw new Error(`attackEntity: unsupported_type_${type}`);
+  /**
+   * Find an entity by id across all known collections.
+   * Returns { type, ref, data } or null if not found.
+   */
+  async function findEntityByIdTx(tx, gameId, entityId) {
+    const cols = [
+      { type: 'PLAYER', col: state.playersCol(gameId) },
+      { type: 'ZOMBIE', col: state.zombiesCol(gameId) },
+      { type: 'HUMAN_NPC', col: state.npcsCol(gameId) },
+      { type: 'ITEM', col: state.itemsCol(gameId) },
+    ];
+
+    for (const entry of cols) {
+      const ref = entry.col.doc(entityId);
+      const snap = await tx.get(ref);
+      if (snap.exists) {
+        return {
+          type: entry.type,
+          ref,
+          data: snap.data() || {},
+        };
+      }
+    }
+
+    return null;
   }
 
   /**
    * Core unified attack helper.
-   * attackerType / targetType: 'PLAYER' | 'ZOMBIE' | 'HUMAN_NPC' | 'ITEM'
+   *
+   * For now we assume the attacker is always a PLAYER (the current user),
+   * so callers only need to pass attackerId + targetId.
+   *
+   * Later we can generalize if NPCs / zombies initiate attacks.
    */
   async function attackEntity({
     gameId = 'lockdown2030',
-    attackerType,
     attackerId,
-    targetType,
     targetId,
     overrideDamage,
     overrideApCost,
   }) {
-    if (!attackerType || !attackerId || !targetType || !targetId) {
-      throw new Error(
-        'attackEntity: attackerType/attackerId/targetType/targetId are required'
-      );
+    if (!attackerId || !targetId) {
+      throw new Error('attackEntity: attackerId and targetId are required');
     }
-
-    const attackerCol = colForType(gameId, attackerType);
-    const targetCol = colForType(gameId, targetType);
-
-    const attackerRef = attackerCol.doc(attackerId);
-    const targetRef = targetCol.doc(targetId);
 
     let attackerHp = null;
     let attackerAp = null;
     let targetHp = null;
 
-    await db.runTransaction(async (tx) => {
-      const [attSnap, tgtSnap] = await Promise.all([
-        tx.get(attackerRef),
-        tx.get(targetRef),
-      ]);
+    let attackerTypeForReturn = null;
+    let attackerKindForReturn = null;
+    let targetTypeForReturn = null;
+    let targetKindForReturn = null;
 
-      if (!attSnap.exists || !tgtSnap.exists) {
+    await db.runTransaction(async (tx) => {
+      // Attacker: we currently only support the player as attacker.
+      const attackerRef = state.playersCol(gameId).doc(attackerId);
+      const attackerSnap = await tx.get(attackerRef);
+      if (!attackerSnap.exists) {
+        throw new Error('attackEntity: attacker_not_found');
+      }
+
+      const attackerData = attackerSnap.data() || {};
+
+      // Target: probe all collections until we find a matching id.
+      const targetInfo = await findEntityByIdTx(tx, gameId, targetId);
+      if (!targetInfo) {
         throw new Error('attackEntity: entity_not_found');
       }
 
-      const attackerData = attSnap.data() || {};
-      const targetData = tgtSnap.data() || {};
+      const targetRef = targetInfo.ref;
+      const targetData = targetInfo.data;
 
-      // Resolve configs based on stored entity docs (type/kind).
+      // Track types/kinds for the response.
+      attackerTypeForReturn = attackerData.type || 'PLAYER';
+      attackerKindForReturn = attackerData.kind || null;
+      targetTypeForReturn = targetInfo.type || targetData.type || 'UNKNOWN';
+      targetKindForReturn = targetData.kind || null;
+
+      // Resolve attacker config based on stored entity doc (type/kind).
       const attackerDescriptor = attackerData.type
         ? attackerData
-        : { type: attackerType, kind: 'DEFAULT' };
+        : { type: 'PLAYER', kind: 'DEFAULT' };
       const attackerCfg = resolveEntityConfig(attackerDescriptor) || {};
 
-      const apCost =
-        overrideApCost ?? attackerCfg.attackApCost ?? 1;
-      const damage =
-        overrideDamage ?? attackerCfg.attackDamage ?? 1;
+      const apCost = overrideApCost ?? attackerCfg.attackApCost ?? 1;
+      const damage = overrideDamage ?? attackerCfg.attackDamage ?? 1;
 
-      const gateAp = attackerType === 'PLAYER';
-
+      // For now only gate AP for player attacks.
+      const gateAp = true;
       const curAp = attackerData.ap ?? 0;
       if (gateAp && curAp < apCost) {
         throw new Error('attackEntity: not_enough_ap');
@@ -86,11 +118,9 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
 
       const attackerWrite = {
         ...attackerData,
+        ap: newAp,
         updatedAt: serverTs(),
       };
-      if (gateAp) {
-        attackerWrite.ap = newAp;
-      }
 
       tx.set(attackerRef, attackerWrite, { merge: true });
 
@@ -108,12 +138,27 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
 
     return {
       ok: true,
-      attacker: { id: attackerId, hp: attackerHp, ap: attackerAp },
-      target: { id: targetId, hp: targetHp },
+      attacker: {
+        id: attackerId,
+        type: attackerTypeForReturn,
+        kind: attackerKindForReturn,
+        hp: attackerHp,
+        ap: attackerAp,
+      },
+      target: {
+        id: targetId,
+        type: targetTypeForReturn,
+        kind: targetKindForReturn,
+        hp: targetHp,
+        dead: targetHp === 0,
+      },
     };
   }
 
-  /** Thin wrapper: player vs player attack (used by engine ATTACK). */
+  /**
+   * Legacy thin wrappers (still useful if anything calls them directly).
+   * They now just delegate into the id-only attackEntity.
+   */
   async function attackPlayer({
     gameId = 'lockdown2030',
     attackerUid,
@@ -123,16 +168,13 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
   }) {
     return attackEntity({
       gameId,
-      attackerType: 'PLAYER',
       attackerId: attackerUid,
-      targetType: 'PLAYER',
       targetId: targetUid,
       overrideDamage: damage,
       overrideApCost: apCost,
     });
   }
 
-  /** Thin wrapper: player vs zombie attack (if you still need it anywhere). */
   async function attackZombie({
     gameId = 'lockdown2030',
     attackerUid,
@@ -142,9 +184,7 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
   }) {
     return attackEntity({
       gameId,
-      attackerType: 'PLAYER',
       attackerId: attackerUid,
-      targetType: 'ZOMBIE',
       targetId: zombieId,
       overrideDamage: damage,
       overrideApCost: apCost,
