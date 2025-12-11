@@ -159,7 +159,7 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     await spawnWriter.spawnItems(gameId, itemSpawns);
   }
 }
-
+// write zombies and players!
 module.exports = {
   spawnAllForNewGame,
 };
