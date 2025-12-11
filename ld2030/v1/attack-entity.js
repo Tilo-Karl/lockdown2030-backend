@@ -9,23 +9,21 @@ module.exports = function registerAttackEntity(app, { engine, base }) {
       const {
         uid,
         gameId = 'lockdown2030',
-        targetType,
         targetId,
         damage,
         apCost,
       } = req.body || {};
 
-      if (!uid || !targetType || !targetId) {
+      if (!uid || !targetId) {
         return res.status(400).json({
           ok: false,
-          error: 'missing_uid_targetType_targetId',
+          error: 'missing_uid_targetId',
         });
       }
 
       const result = await engine.router.handleAttackEntity({
         uid,
         gameId,
-        targetType,
         targetId,
         damage,
         apCost,

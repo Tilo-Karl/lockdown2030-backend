@@ -18,17 +18,18 @@ function makeActionRouter({ engine, writer }) {
   // Generic entity attack – single entry point for all future combat
   async function handleAttackEntity({
     uid,
-    targetType,
     targetId,
     gameId = 'lockdown2030',
     damage,
     apCost,
   }) {
+    if (!uid || !targetId) {
+      throw new Error('attackEntity: missing_uid_or_targetId');
+    }
+
     return writer.attackEntity({
       gameId,
-      attackerType: 'PLAYER',
       attackerId: uid,
-      targetType,
       targetId,
       overrideDamage: damage,
       overrideApCost: apCost,
