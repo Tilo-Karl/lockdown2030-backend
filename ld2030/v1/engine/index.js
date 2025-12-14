@@ -9,7 +9,10 @@ const { makeTickEngine } = require('../tick');
 
 function makeGameEngine({ db, admin, state }) {
   const reader = makeStateReader({ db, state });
-  const writer = makeStateWriter({ db, admin, state });
+
+  // IMPORTANT: pass reader into writers that may need it (equipment, etc.)
+  const writer = makeStateWriter({ db, admin, state, reader });
+
   const engine = makeEngine({ reader, writer });
   const tickEngine = makeTickEngine({ reader, writer });
   const router = makeActionRouter({ engine, writer });

@@ -7,6 +7,8 @@
 // Base stats (hp, damage, etc.) now come from the unified entity config,
 // so all entities share the same source of truth for core numbers.
 
+// LEGACY - DELETE!
+
 const { resolveEntityConfig } = require('../entity');
 
 // Pull the base walker stats from the unified entity config.
