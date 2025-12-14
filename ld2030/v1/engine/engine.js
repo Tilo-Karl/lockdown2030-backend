@@ -1,11 +1,14 @@
 // ld2030/v1/engine/engine.js
 // Core game logic. No legacy paths.
+// Engine coordinates rules + services, does not do Firestore transactions itself.
 
-const { canEquip } = require('./equipment-rules');
+const { makeEquipmentService } = require('./equipment-service');
 
 function makeEngine({ reader, writer }) {
   if (!reader) throw new Error('engine: reader is required');
   if (!writer) throw new Error('engine: writer is required');
+
+  const equipmentService = makeEquipmentService({ reader, writer });
 
   async function processAction(action) {
     switch (action.type) {
@@ -31,11 +34,11 @@ function makeEngine({ reader, writer }) {
     const actor = await reader.getPlayer(gameId, uid);
     const pos = actor?.pos || { x: 0, y: 0 };
 
-    const x = Math.min(Math.max(pos.x + dx, 0), gridSize.w - 1);
-    const y = Math.min(Math.max(pos.y + dy, 0), gridSize.h - 1);
+    const x = Math.min(Math.max((pos.x ?? 0) + Number(dx), 0), gridSize.w - 1);
+    const y = Math.min(Math.max((pos.y ?? 0) + Number(dy), 0), gridSize.h - 1);
 
     await writer.updatePlayer(gameId, uid, { pos: { x, y } });
-    return { ok: true, pos: { x, y } };
+    return { ok: true, gameId, uid, pos: { x, y } };
   }
 
   async function handleAttackEntity({ gameId = 'lockdown2030', uid, targetId }) {
@@ -49,21 +52,14 @@ function makeEngine({ reader, writer }) {
     if (!uid) throw new Error('EQUIP_ITEM: uid is required');
     if (!itemId) throw new Error('EQUIP_ITEM: itemId is required');
 
-    const actor = await reader.getPlayer(gameId, uid);
-    const item = await reader.getItem(gameId, itemId);
-    if (!actor || !item) throw new Error('equip: missing_actor_or_item');
-
-    const check = canEquip({ actor, item });
-    if (!check.ok) throw new Error(`equip: ${check.reason}`);
-
-    return writer.equipItem({ gameId, actorId: uid, itemId });
+    return equipmentService.equipItem({ gameId, actorId: uid, itemId });
   }
 
   async function handleUnequip({ gameId = 'lockdown2030', uid, itemId }) {
     if (!uid) throw new Error('UNEQUIP_ITEM: uid is required');
     if (!itemId) throw new Error('UNEQUIP_ITEM: itemId is required');
 
-    return writer.unequipItem({ gameId, actorId: uid, itemId });
+    return equipmentService.unequipItem({ gameId, actorId: uid, itemId });
   }
 
   return { processAction };

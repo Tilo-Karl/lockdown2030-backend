@@ -1,13 +1,9 @@
 // ld2030/v1/engine/state-writer-equipment.js
-// Transactional equip/unequip writes.
-// Rules are pure (equipment-rules.js). This file enforces them against Firestore state.
-
-const {
-  canEquip,
-  equip,
-  unequip,
-  computeDerivedStats,
-} = require('./equipment-rules');
+// Transaction-only equipment writes.
+// - Re-reads actor + item inside tx
+// - Re-validates minimal invariants to avoid races
+// - Applies the patch computed by equipment-service
+// No derived-stat computation here.
 
 module.exports = function makeEquipmentWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-equipment: db is required');
@@ -16,56 +12,30 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
 
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  async function ensureCreatedAtTx(tx, ref) {
-    const snap = await tx.get(ref);
-    if (!snap.exists) {
-      tx.set(ref, { createdAt: serverTs() }, { merge: true });
-      return;
-    }
-    const data = snap.data() || {};
-    if (data.createdAt == null) {
-      tx.set(ref, { createdAt: serverTs() }, { merge: true });
-    }
-  }
-
-  function extractEquippedItemIds(equipment) {
+  function listEquippedItemIds(equipment) {
+    const eq = equipment || {};
     const ids = [];
-    if (!equipment || typeof equipment !== 'object') return ids;
 
-    for (const val of Object.values(equipment)) {
-      if (!val) continue;
-      if (typeof val === 'string') {
-        ids.push(val);
-        continue;
-      }
-      if (typeof val === 'object') {
-        for (const inner of Object.values(val)) {
-          if (typeof inner === 'string') ids.push(inner);
+    for (const v of Object.values(eq)) {
+      if (!v) continue;
+      if (typeof v === 'string') ids.push(v);
+      else if (typeof v === 'object') {
+        for (const vv of Object.values(v)) {
+          if (typeof vv === 'string' && vv) ids.push(vv);
         }
       }
     }
-
     return Array.from(new Set(ids));
   }
 
-  async function fetchItemsByIdsTx(tx, gameId, itemIds) {
-    const col = state.itemsCol(gameId);
-    const snaps = await Promise.all(itemIds.map((id) => tx.get(col.doc(id))));
-    return snaps
-      .filter((s) => s && s.exists)
-      .map((s) => ({ id: s.id, ...(s.data() || {}) }));
-  }
-
-  async function equipItem({ gameId = 'lockdown2030', actorId, itemId }) {
-    if (!actorId) throw new Error('equipItem: actorId is required');
-    if (!itemId) throw new Error('equipItem: itemId is required');
+  async function equipItem({ gameId = 'lockdown2030', actorId, itemId, patch }) {
+    if (!actorId || !itemId) throw new Error('equipItem: missing_actorId_or_itemId');
+    if (!patch || typeof patch !== 'object') throw new Error('equipItem: missing_patch');
 
     const actorRef = state.playersCol(gameId).doc(actorId);
     const itemRef = state.itemsCol(gameId).doc(itemId);
 
     await db.runTransaction(async (tx) => {
-      await ensureCreatedAtTx(tx, actorRef);
-
       const actorSnap = await tx.get(actorRef);
       const itemSnap = await tx.get(itemRef);
 
@@ -75,49 +45,38 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
       const actor = actorSnap.data() || {};
       const item = itemSnap.data() || {};
 
-      if (String(item.type || '').toUpperCase() !== 'ITEM') {
-        throw new Error('equipItem: target_not_item');
+      // Minimal invariants
+      if (String(actor.type || '').toUpperCase() !== 'HUMAN') {
+        // you may allow zombies/NPCs later; for now keep it strict
+        throw new Error('equipItem: actor_not_human');
       }
 
-      // Must be in inventory to equip
-      const inv = Array.isArray(actor.inventory) ? actor.inventory.slice() : [];
-      if (!inv.includes(itemId)) {
-        throw new Error('equipItem: item_not_in_inventory');
+      if (!item.slot) throw new Error('equipItem: item_not_equippable');
+
+      // Must be in inventory at commit time
+      const inv = Array.isArray(actor.inventory) ? actor.inventory : [];
+      if (!inv.includes(itemId)) throw new Error('equipItem: item_not_in_inventory');
+
+      // Slot/layer must still be free at commit time
+      const eq = actor.equipment || {};
+      const slotVal = eq[item.slot];
+      if (!slotVal) throw new Error('equipItem: invalid_slot_on_actor');
+
+      if (typeof slotVal === 'object') {
+        const layer = item.layer || 'base';
+        if (slotVal[layer]) throw new Error('equipItem: layer_occupied');
+      } else {
+        if (slotVal !== null) throw new Error('equipItem: slot_occupied');
       }
 
-      const check = canEquip({ actor, item });
-      if (!check.ok) {
-        throw new Error(`equipItem: ${check.reason}`);
-      }
-
-      const newEquipment = equip(actor, item, itemId);
-
-      // remove from inventory when equipped
-      const nextInventory = inv.filter((id) => id !== itemId);
-
-      // carryUsed = weight of inventory items (equipped items don't count)
-      const itemWeight = Number.isFinite(item.weight) ? Number(item.weight) : 0;
-      const curCarryUsed = Number.isFinite(actor.carryUsed) ? Number(actor.carryUsed) : 0;
-      const nextCarryUsed = Math.max(0, curCarryUsed - itemWeight);
-
-      // recompute derived stats
-      const equippedIds = extractEquippedItemIds(newEquipment);
-      const equippedItems = await fetchItemsByIdsTx(tx, gameId, equippedIds);
-      const derived = computeDerivedStats(actor, equippedItems);
+      // Patch sanity: must result in itemId being equipped
+      const equippedAfter = listEquippedItemIds(patch.equipment);
+      if (!equippedAfter.includes(itemId)) throw new Error('equipItem: patch_does_not_equip_item');
 
       tx.set(
         actorRef,
         {
-          equipment: newEquipment,
-          inventory: nextInventory,
-          carryUsed: nextCarryUsed,
-          derived: {
-            armor: derived.armor,
-            maxHpBonus: derived.maxHpBonus,
-            moveApPenalty: derived.moveApPenalty,
-            weaponKind: derived.weapon ? derived.weapon.kind || null : null,
-            weaponItemId: derived.weapon ? derived.weapon.id || null : null,
-          },
+          ...patch,
           updatedAt: serverTs(),
         },
         { merge: true }
@@ -127,16 +86,14 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  async function unequipItem({ gameId = 'lockdown2030', actorId, itemId }) {
-    if (!actorId) throw new Error('unequipItem: actorId is required');
-    if (!itemId) throw new Error('unequipItem: itemId is required');
+  async function unequipItem({ gameId = 'lockdown2030', actorId, itemId, patch }) {
+    if (!actorId || !itemId) throw new Error('unequipItem: missing_actorId_or_itemId');
+    if (!patch || typeof patch !== 'object') throw new Error('unequipItem: missing_patch');
 
     const actorRef = state.playersCol(gameId).doc(actorId);
     const itemRef = state.itemsCol(gameId).doc(itemId);
 
     await db.runTransaction(async (tx) => {
-      await ensureCreatedAtTx(tx, actorRef);
-
       const actorSnap = await tx.get(actorRef);
       const itemSnap = await tx.get(itemRef);
 
@@ -146,55 +103,20 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
       const actor = actorSnap.data() || {};
       const item = itemSnap.data() || {};
 
-      if (!item.slot) {
-        throw new Error('unequipItem: item_not_equippable');
-      }
+      if (!item.slot) throw new Error('unequipItem: item_not_equippable');
 
-      // confirm it's currently equipped
-      const equipment = actor.equipment || {};
-      const slotVal = equipment[item.slot];
-      const layer = item.layer || 'base';
+      // Must be equipped at commit time
+      const equippedNow = listEquippedItemIds(actor.equipment);
+      if (!equippedNow.includes(itemId)) throw new Error('unequipItem: item_not_equipped');
 
-      let isEquipped = false;
-      if (typeof slotVal === 'string') {
-        isEquipped = slotVal === itemId;
-      } else if (slotVal && typeof slotVal === 'object') {
-        isEquipped = slotVal[layer] === itemId;
-      }
-
-      if (!isEquipped) {
-        throw new Error('unequipItem: item_not_equipped');
-      }
-
-      const newEquipment = unequip(actor, item);
-
-      // add back to inventory
-      const inv = Array.isArray(actor.inventory) ? actor.inventory.slice() : [];
-      const nextInventory = inv.includes(itemId) ? inv : [...inv, itemId];
-
-      // carryUsed = weight of inventory items
-      const itemWeight = Number.isFinite(item.weight) ? Number(item.weight) : 0;
-      const curCarryUsed = Number.isFinite(actor.carryUsed) ? Number(actor.carryUsed) : 0;
-      const nextCarryUsed = curCarryUsed + itemWeight;
-
-      // recompute derived stats
-      const equippedIds = extractEquippedItemIds(newEquipment);
-      const equippedItems = await fetchItemsByIdsTx(tx, gameId, equippedIds);
-      const derived = computeDerivedStats(actor, equippedItems);
+      // Patch sanity: must remove from equipment
+      const equippedAfter = listEquippedItemIds(patch.equipment);
+      if (equippedAfter.includes(itemId)) throw new Error('unequipItem: patch_does_not_unequip_item');
 
       tx.set(
         actorRef,
         {
-          equipment: newEquipment,
-          inventory: nextInventory,
-          carryUsed: nextCarryUsed,
-          derived: {
-            armor: derived.armor,
-            maxHpBonus: derived.maxHpBonus,
-            moveApPenalty: derived.moveApPenalty,
-            weaponKind: derived.weapon ? derived.weapon.kind || null : null,
-            weaponItemId: derived.weapon ? derived.weapon.id || null : null,
-          },
+          ...patch,
           updatedAt: serverTs(),
         },
         { merge: true }
