@@ -1,5 +1,5 @@
 // ld2030/v1/engine/state-writer-attack.js
-// Combat / unified attack path.
+// Unified attack path: id-only. NO legacy wrappers. Uses currentHp/currentAp or currentDurability.
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -10,45 +10,24 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
 
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  /**
-   * Find an entity by id across all known collections.
-   * Returns { type, ref, data } or null if not found.
-   */
   async function findEntityByIdTx(tx, gameId, entityId) {
     const cols = [
-      { type: 'PLAYER',    col: state.playersCol(gameId) },
-      { type: 'ZOMBIE',    col: state.zombiesCol(gameId) },
-      { type: 'HUMAN_NPC', col: state.npcsCol(gameId) },
-      { type: 'ITEM',      col: state.itemsCol(gameId) },
+      state.playersCol(gameId),
+      state.zombiesCol(gameId),
+      state.npcsCol(gameId),
+      state.itemsCol(gameId),
     ];
 
-    for (const entry of cols) {
-      const ref = entry.col.doc(entityId);
+    for (const col of cols) {
+      const ref = col.doc(entityId);
       const snap = await tx.get(ref);
       if (snap.exists) {
-        return {
-          type: entry.type,
-          ref,
-          data: snap.data() || {},
-        };
+        return { ref, data: snap.data() || {} };
       }
     }
-
     return null;
   }
 
-  /**
-   * Core unified attack helper.
-   *
-   * Callers only pass attackerId + targetId (+ optional overrides).
-   * We infer types from Firestore docs via findEntityByIdTx.
-   *
-   * Works for:
-   *  - player → zombie
-   *  - player → human NPC
-   *  - player → item
-   *  - zombie/NPC → player (when tick/AI calls it)
-   */
   async function attackEntity({
     gameId = 'lockdown2030',
     attackerId,
@@ -56,165 +35,105 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
     overrideDamage,
     overrideApCost,
   }) {
-    if (!attackerId || !targetId) {
-      throw new Error('attackEntity: attackerId and targetId are required');
-    }
+    if (!attackerId || !targetId) throw new Error('attackEntity: attackerId and targetId are required');
 
-    let attackerHp = null;
-    let attackerAp = null;
-    let targetHp = null;
-
-    let attackerTypeForReturn = null;
-    let attackerKindForReturn = null;
-    let targetTypeForReturn = null;
-    let targetKindForReturn = null;
-
-    let damageForReturn = null;
-    let hitForReturn = null;
-    let deadForReturn = null;
+    let attackerSnapshot = null;
+    let targetSnapshot = null;
 
     await db.runTransaction(async (tx) => {
-      // Attacker: look up by id across all collections.
       const attackerInfo = await findEntityByIdTx(tx, gameId, attackerId);
-      if (!attackerInfo) {
-        throw new Error('attackEntity: attacker_not_found');
-      }
+      if (!attackerInfo) throw new Error('attackEntity: attacker_not_found');
 
-      const attackerRef  = attackerInfo.ref;
-      const attackerData = attackerInfo.data;
-
-      // Target: probe all collections until we find a matching id.
       const targetInfo = await findEntityByIdTx(tx, gameId, targetId);
-      if (!targetInfo) {
-        throw new Error('attackEntity: entity_not_found');
-      }
+      if (!targetInfo) throw new Error('attackEntity: target_not_found');
 
-      const targetRef  = targetInfo.ref;
-      const targetData = targetInfo.data;
+      const attackerRef = attackerInfo.ref;
+      const targetRef = targetInfo.ref;
 
-      // Track types/kinds for the response.
-      attackerTypeForReturn = attackerInfo.type || attackerData.type || 'UNKNOWN';
-      attackerKindForReturn = attackerData.kind || null;
-      targetTypeForReturn   = targetInfo.type || targetData.type || 'UNKNOWN';
-      targetKindForReturn   = targetData.kind || null;
+      const attacker = attackerInfo.data;
+      const target = targetInfo.data;
 
-      // Resolve attacker config based on stored entity doc (type/kind).
-      const attackerDescriptor = attackerData.type
-        ? attackerData
-        : { type: attackerTypeForReturn, kind: attackerKindForReturn || 'DEFAULT' };
+      // Must exist on docs in new system
+      const aType = String(attacker.type || '').toUpperCase();
+      const aKind = String(attacker.kind || '').toUpperCase();
+      const tType = String(target.type || '').toUpperCase();
+      const tKind = String(target.kind || '').toUpperCase();
 
-      const attackerCfg = resolveEntityConfig(attackerDescriptor) || {};
+      if (!aType || !aKind) throw new Error('attackEntity: attacker_missing_type_or_kind');
+      if (!tType || !tKind) throw new Error('attackEntity: target_missing_type_or_kind');
 
+      const attackerCfg = resolveEntityConfig(aType, aKind) || {};
       const apCost = overrideApCost ?? attackerCfg.attackApCost ?? 1;
       const damage = overrideDamage ?? attackerCfg.attackDamage ?? 1;
 
-      // For now only gate AP for player attacks.
-      const gateAp = attackerTypeForReturn === 'PLAYER';
-      const curAp  = attackerData.ap ?? 0;
-      if (gateAp && curAp < apCost) {
-        throw new Error('attackEntity: not_enough_ap');
+      const gateAp = attacker.isPlayer === true;
+      const curAp = Number.isFinite(attacker.currentAp) ? attacker.currentAp : 0;
+
+      if (gateAp && curAp < apCost) throw new Error('attackEntity: not_enough_ap');
+
+      const nextAp = gateAp ? Math.max(0, curAp - apCost) : curAp;
+
+      // Apply damage to actors vs items
+      let targetWrite = { updatedAt: serverTs() };
+
+      if (tType === 'ITEM') {
+        const destructible = target.destructible !== false;
+        const curDur = Number.isFinite(target.currentDurability) ? target.currentDurability : 0;
+
+        if (!destructible) {
+          // no-op (still spend AP if player attacked)
+          targetWrite = { updatedAt: serverTs() };
+        } else {
+          const nextDur = Math.max(0, curDur - damage);
+          targetWrite.currentDurability = nextDur;
+          targetWrite.broken = nextDur <= 0;
+        }
+      } else {
+        const alive = target.alive !== false;
+        if (!alive) throw new Error('attackEntity: target_dead');
+
+        const curHp = Number.isFinite(target.currentHp) ? target.currentHp : 0;
+        const nextHp = Math.max(0, curHp - damage);
+
+        targetWrite.currentHp = nextHp;
+        targetWrite.alive = nextHp > 0;
+        if (nextHp <= 0) targetWrite.downed = true; // optional; you already have downed in BASE_ACTOR
       }
 
-      const newAp = gateAp ? Math.max(0, curAp - apCost) : curAp;
-
-      const curHp = targetData.hp ?? 0;
-      const newHp = Math.max(0, curHp - damage);
-
-      const didHit = newHp < curHp;
-      const isDead = newHp <= 0;
-
-      // Track for return payload
-      attackerHp = attackerData.hp ?? null;
-      attackerAp = newAp;
-      targetHp   = newHp;
-
-      damageForReturn = damage;
-      hitForReturn    = didHit;
-      deadForReturn   = isDead;
-
+      // Attacker write (AP)
       const attackerWrite = {
-        ...attackerData,
         updatedAt: serverTs(),
       };
-      if (gateAp) {
-        attackerWrite.ap = newAp;
-      }
+      if (gateAp) attackerWrite.currentAp = nextAp;
 
       tx.set(attackerRef, attackerWrite, { merge: true });
+      tx.set(targetRef, targetWrite, { merge: true });
 
-      tx.set(
-        targetRef,
-        {
-          ...targetData,
-          hp: newHp,
-          alive: newHp > 0,
-          updatedAt: serverTs(),
-        },
-        { merge: true }
-      );
+      attackerSnapshot = { ...attacker, ...attackerWrite };
+      targetSnapshot = { ...target, ...targetWrite };
     });
 
     return {
       ok: true,
       attacker: {
         id: attackerId,
-        type: attackerTypeForReturn,
-        kind: attackerKindForReturn,
-        hp: attackerHp,
-        ap: attackerAp,
+        type: attackerSnapshot?.type || null,
+        kind: attackerSnapshot?.kind || null,
+        isPlayer: attackerSnapshot?.isPlayer === true,
+        currentHp: attackerSnapshot?.currentHp ?? null,
+        currentAp: attackerSnapshot?.currentAp ?? null,
       },
       target: {
         id: targetId,
-        type: targetTypeForReturn,
-        kind: targetKindForReturn,
-        hp: targetHp,
-        dead: deadForReturn,
+        type: targetSnapshot?.type || null,
+        kind: targetSnapshot?.kind || null,
+        currentHp: targetSnapshot?.currentHp ?? null,
+        currentDurability: targetSnapshot?.currentDurability ?? null,
+        alive: targetSnapshot?.alive ?? null,
+        broken: targetSnapshot?.broken ?? null,
       },
-      hit: hitForReturn,
-      damage: damageForReturn,
-      hpAfter: targetHp,
     };
   }
 
-  /**
-   * Legacy thin wrappers (still useful if anything calls them directly).
-   * They now just delegate into the id-only attackEntity.
-   */
-  async function attackPlayer({
-    gameId = 'lockdown2030',
-    attackerUid,
-    targetUid,
-    damage,
-    apCost,
-  }) {
-    return attackEntity({
-      gameId,
-      attackerId: attackerUid,
-      targetId: targetUid,
-      overrideDamage: damage,
-      overrideApCost: apCost,
-    });
-  }
-
-  async function attackZombie({
-    gameId = 'lockdown2030',
-    attackerUid,
-    zombieId,
-    damage,
-    apCost,
-  }) {
-    return attackEntity({
-      gameId,
-      attackerId: attackerUid,
-      targetId: zombieId,
-      overrideDamage: damage,
-      overrideApCost: apCost,
-    });
-  }
-
-  return {
-    attackEntity,
-    attackPlayer,
-    attackZombie,
-  };
+  return { attackEntity };
 };

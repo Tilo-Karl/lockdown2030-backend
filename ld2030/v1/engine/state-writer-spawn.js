@@ -1,6 +1,13 @@
 // ld2030/v1/engine/state-writer-spawn.js
-// All spawn helpers (zombies, human NPCs, items) in one place.
-// NOW: every spawned entity gets full combat stats on the doc.
+// Spawn helpers (zombies, human actors, items).
+// NEW MODEL (no legacy):
+// - Actors use: maxHp/maxAp + currentHp/currentAp
+// - Items use: durabilityMax + currentDurability
+// - Templates are the single source of truth for defaults.
+// - Spawner adds runtime/world fields: pos, createdAt, updatedAt, current* values.
+//
+// Improvement:
+// - Stamp faction explicitly on spawned ACTORS (derived from tmpl.faction or tags 'faction:*').
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -13,73 +20,70 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
   const { zombiesCol, npcsCol, itemsCol } = state;
 
-  // Helpers to normalize config → final stats on doc -------------------------
+  // ---------------------------------------------------------------------------
+  // Helpers: template -> Firestore doc (runtime fields injected here)
+  // ---------------------------------------------------------------------------
 
-  function buildActorDocFromConfig(tmpl, extra) {
-    const baseHp         = Number.isFinite(tmpl.baseHp) ? tmpl.baseHp : 60;
-    const baseAp         = Number.isFinite(tmpl.baseAp) ? tmpl.baseAp : 0;
-    const attackDamage   =
-      Number.isFinite(tmpl.baseAttackDamage) ? tmpl.baseAttackDamage :
-      Number.isFinite(tmpl.attackDamage)     ? tmpl.attackDamage     : 5;
-    const attackApCost   =
-      Number.isFinite(tmpl.attackApCost) ? tmpl.attackApCost : 1;
-    const hitChance      =
-      Number.isFinite(tmpl.baseHitChance) ? tmpl.baseHitChance :
-      Number.isFinite(tmpl.hitChance)     ? tmpl.hitChance     : 1.0;
-    const armor          =
-      Number.isFinite(tmpl.baseArmor) ? tmpl.baseArmor :
-      Number.isFinite(tmpl.armor)     ? tmpl.armor     : 0;
+  function extractFactionFromTemplate(tmpl) {
+    if (tmpl && typeof tmpl.faction === 'string' && tmpl.faction.trim()) {
+      return tmpl.faction.trim();
+    }
+    const tags = Array.isArray(tmpl?.tags) ? tmpl.tags : [];
+    for (const t of tags) {
+      if (typeof t !== 'string') continue;
+      if (t.startsWith('faction:')) {
+        const f = t.slice('faction:'.length).trim();
+        if (f) return f;
+      }
+    }
+    // Sensible defaults if not provided
+    if (String(tmpl?.type || '').toUpperCase() === 'ZOMBIE') return 'zombie';
+    return 'neutral';
+  }
+
+  function buildActorDocFromTemplate(tmpl, extra) {
+    const maxHp = Number.isFinite(tmpl.maxHp) ? tmpl.maxHp : 50;
+    const maxAp = Number.isFinite(tmpl.maxAp) ? tmpl.maxAp : 2;
+
+    // Explicit faction stamp (single canonical field on the doc)
+    const faction = extractFactionFromTemplate(tmpl);
 
     return {
-      type:    tmpl.type    || 'UNKNOWN',
-      kind:    tmpl.kind    || 'DEFAULT',
-      species: tmpl.species || 'unknown',
-      tags:    Array.isArray(tmpl.tags) ? tmpl.tags : [],
-      hp:      baseHp,
-      maxHp:   baseHp,
-      ap:      baseAp,
-      attackDamage,
-      attackApCost,
-      hitChance,
-      armor,
-      alive:   true,
-      ...extra,
-      // keep original config hooks if needed later
-      baseHp,
-      baseAp,
-      baseAttackDamage: attackDamage,
-      baseAttackApCost: attackApCost,
-      baseArmor: armor,
-      spawnedAt: serverTs(),
+      // template defaults (includes BASE_ACTOR shape)
+      ...tmpl,
+
+      // canonical relations field
+      faction,
+
+      // runtime/current values (authoritative on the doc)
+      currentHp: maxHp,
+      currentAp: maxAp,
+
+      // timestamps
+      createdAt: serverTs(),
       updatedAt: serverTs(),
+
+      // world fields
+      ...extra,
     };
   }
 
-  function buildItemDocFromConfig(tmpl, extra) {
-    const baseHp   = Number.isFinite(tmpl.baseHp) ? tmpl.baseHp : null;
-    const armor    = Number.isFinite(tmpl.armor) ? tmpl.armor : 0;
-    const damage   = Number.isFinite(tmpl.damage) ? tmpl.damage : 0;
-    const weight   = Number.isFinite(tmpl.weight) ? tmpl.weight : 1;
-    const value    = Number.isFinite(tmpl.value) ? tmpl.value : 0;
-    const durable  = Number.isFinite(tmpl.durability) ? tmpl.durability : null;
+  function buildItemDocFromTemplate(tmpl, extra) {
+    const durabilityMax = Number.isFinite(tmpl.durabilityMax) ? tmpl.durabilityMax : 1;
 
     return {
-      type:    tmpl.type    || 'ITEM',
-      kind:    tmpl.kind    || 'GENERIC',
-      species: tmpl.species || 'object',
-      tags:    Array.isArray(tmpl.tags) ? tmpl.tags : [],
-      hp:      baseHp,
-      maxHp:   baseHp,
-      armor,
-      damage,
-      weight,
-      value,
-      durability: durable,
-      slot: tmpl.slot || null, // weapon/body/etc.
-      alive: baseHp == null ? null : baseHp > 0,
-      ...extra,
-      spawnedAt: serverTs(),
+      // template defaults (includes BASE_ITEM shape)
+      ...tmpl,
+
+      // runtime/current values
+      currentDurability: durabilityMax,
+
+      // timestamps
+      createdAt: serverTs(),
       updatedAt: serverTs(),
+
+      // world fields
+      ...extra,
     };
   }
 
@@ -111,10 +115,11 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const y = Number(spawn.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      const kindKey = (spawn.kind || 'WALKER').toUpperCase();
-      const tmpl = resolveEntityConfig('ZOMBIE', kindKey) || {};
+      const kindKey = String(spawn.kind || 'WALKER').trim().toUpperCase();
+      const tmpl = resolveEntityConfig('ZOMBIE', kindKey);
+      if (!tmpl) return; // no fallbacks
 
-      const doc = buildActorDocFromConfig(tmpl, {
+      const doc = buildActorDocFromTemplate(tmpl, {
         pos: { x, y },
       });
 
@@ -123,26 +128,24 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       count += 1;
     });
 
-    if (count > 0) {
-      await batch.commit();
-    }
-
+    if (count > 0) await batch.commit();
     return { ok: true, count };
   }
 
   // ---------------------------------------------------------------------------
-  // HUMAN NPCs
+  // HUMANS (non-player actors)
   // spawns: [{ x, y, kind }]
+  // NOTE: stored in npcs collection, but type on doc is HUMAN.
   // ---------------------------------------------------------------------------
-  async function spawnHumanNpcs(gameId, spawns) {
-    if (!gameId) throw new Error('spawnHumanNpcs: missing gameId');
+  async function spawnHumans(gameId, spawns) {
+    if (!gameId) throw new Error('spawnHumans: missing gameId');
 
     const col = npcsCol(gameId);
     if (!Array.isArray(spawns) || spawns.length === 0) {
       return { ok: true, count: 0 };
     }
 
-    // Clear existing NPCs for this game (fresh round)
+    // Clear existing humans for this game (fresh round)
     const existing = await col.get();
     if (!existing.empty) {
       const delBatch = db.batch();
@@ -158,12 +161,12 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const y = Number(spawn.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      const kindKey = (spawn.kind || 'CIVILIAN').toUpperCase();
-      const tmpl = resolveEntityConfig('HUMAN', kindKey) || {};
+      const kindKey = String(spawn.kind || 'CIVILIAN').trim().toUpperCase();
+      const tmpl = resolveEntityConfig('HUMAN', kindKey);
+      if (!tmpl) return;
 
-      const doc = buildActorDocFromConfig(tmpl, {
+      const doc = buildActorDocFromTemplate(tmpl, {
         pos: { x, y },
-        faction: tmpl.faction || 'neutral',
       });
 
       const ref = col.doc();
@@ -171,10 +174,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       count += 1;
     });
 
-    if (count > 0) {
-      await batch.commit();
-    }
-
+    if (count > 0) await batch.commit();
     return { ok: true, count };
   }
 
@@ -206,10 +206,11 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const y = Number(spawn.y);
       if (!Number.isFinite(x) || !Number.isFinite(y)) return;
 
-      const kindKey = (spawn.kind || 'GENERIC').toUpperCase();
-      const tmpl = resolveEntityConfig('ITEM', kindKey) || {};
+      const kindKey = String(spawn.kind || '').trim().toUpperCase();
+      const tmpl = resolveEntityConfig('ITEM', kindKey);
+      if (!tmpl) return;
 
-      const doc = buildItemDocFromConfig(tmpl, {
+      const doc = buildItemDocFromTemplate(tmpl, {
         pos: { x, y },
       });
 
@@ -218,16 +219,14 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       count += 1;
     });
 
-    if (count > 0) {
-      await batch.commit();
-    }
-
+    if (count > 0) await batch.commit();
     return { ok: true, count };
   }
 
   return {
     spawnZombies,
-    spawnHumanNpcs,
+    // keep the old name for the call site, but it’s HUMAN docs
+    spawnHumanNpcs: spawnHumans,
     spawnItems,
   };
 };

@@ -1,5 +1,7 @@
 // ld2030/v1/engine/engine.js
-// Core game logic: takes actions, applies rules, calls state-writer.
+// Core game logic. No legacy paths.
+
+const { canEquip } = require('./equipment-rules');
 
 function makeEngine({ reader, writer }) {
   if (!reader) throw new Error('engine: reader is required');
@@ -9,10 +11,12 @@ function makeEngine({ reader, writer }) {
     switch (action.type) {
       case 'MOVE':
         return handleMove(action);
-      case 'ATTACK':
-        return handleAttack(action);
-      // case 'ENTER_BUILDING':
-      //   return handleEnterBuilding(action);
+      case 'ATTACK_ENTITY':
+        return handleAttackEntity(action);
+      case 'EQUIP_ITEM':
+        return handleEquip(action);
+      case 'UNEQUIP_ITEM':
+        return handleUnequip(action);
       default:
         throw new Error(`Unknown action type: ${action.type}`);
     }
@@ -24,61 +28,45 @@ function makeEngine({ reader, writer }) {
     const game = await reader.getGame(gameId);
     const gridSize = game?.gridsize || { w: 32, h: 32 };
 
-    const currentPlayer = (await reader.getPlayer(gameId, uid)) || {
-      pos: { x: 0, y: 0 },
-      hp: 100,
-      ap: 3,
-      alive: true,
-    };
+    const actor = await reader.getPlayer(gameId, uid);
+    const pos = actor?.pos || { x: 0, y: 0 };
 
-    const curPos = currentPlayer.pos || { x: 0, y: 0 };
-    const newX = (curPos.x || 0) + Number(dx);
-    const newY = (curPos.y || 0) + Number(dy);
+    const x = Math.min(Math.max(pos.x + dx, 0), gridSize.w - 1);
+    const y = Math.min(Math.max(pos.y + dy, 0), gridSize.h - 1);
 
-    // Clamp to grid for safety (authoritative server)
-    const clampedX = Math.min(Math.max(newX, 0), gridSize.w - 1);
-    const clampedY = Math.min(Math.max(newY, 0), gridSize.h - 1);
-
-    const nextPlayer = {
-      ...currentPlayer,
-      pos: { x: clampedX, y: clampedY },
-    };
-
-    await writer.updatePlayer(gameId, uid, nextPlayer);
-
-    return {
-      ok: true,
-      gameId,
-      uid,
-      pos: nextPlayer.pos,
-    };
+    await writer.updatePlayer(gameId, uid, { pos: { x, y } });
+    return { ok: true, pos: { x, y } };
   }
 
-  // Player vs player attack routed via state-writer.attackPlayer → attackEntity.
-  async function handleAttack({ gameId = 'lockdown2030', uid, targetUid }) {
-    if (!uid) throw new Error('ATTACK: uid is required');
-    if (!targetUid) throw new Error('ATTACK: targetUid is required');
+  async function handleAttackEntity({ gameId = 'lockdown2030', uid, targetId }) {
+    if (!uid) throw new Error('ATTACK_ENTITY: uid is required');
+    if (!targetId) throw new Error('ATTACK_ENTITY: targetId is required');
 
-    const result = await writer.attackPlayer({
-      gameId,
-      attackerUid: uid,
-      targetUid,
-      // damage / apCost come from unified entity config by default
-    });
-
-    return {
-      ok: true,
-      gameId,
-      attacker: { uid, ...(result.attacker || {}) },
-      target: { uid: targetUid, ...(result.target || {}) },
-    };
+    return writer.attackEntity({ gameId, attackerId: uid, targetId });
   }
 
-  return {
-    processAction,
-  };
+  async function handleEquip({ gameId = 'lockdown2030', uid, itemId }) {
+    if (!uid) throw new Error('EQUIP_ITEM: uid is required');
+    if (!itemId) throw new Error('EQUIP_ITEM: itemId is required');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    const item = await reader.getItem(gameId, itemId);
+    if (!actor || !item) throw new Error('equip: missing_actor_or_item');
+
+    const check = canEquip({ actor, item });
+    if (!check.ok) throw new Error(`equip: ${check.reason}`);
+
+    return writer.equipItem({ gameId, actorId: uid, itemId });
+  }
+
+  async function handleUnequip({ gameId = 'lockdown2030', uid, itemId }) {
+    if (!uid) throw new Error('UNEQUIP_ITEM: uid is required');
+    if (!itemId) throw new Error('UNEQUIP_ITEM: itemId is required');
+
+    return writer.unequipItem({ gameId, actorId: uid, itemId });
+  }
+
+  return { processAction };
 }
 
-module.exports = {
-  makeEngine,
-};
+module.exports = { makeEngine };

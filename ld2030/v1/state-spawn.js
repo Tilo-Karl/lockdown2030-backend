@@ -1,22 +1,10 @@
-// ld2030/v1/state-spawn.js — spawn zombies, human NPCs and items for a new game
+// ld2030/v1/state-spawn.js — spawn zombies, humans and items for a new game
 
 const { TILES } = require('./config');
 const { ZOMBIE } = require('./config/config-game');
 
-/**
- * Spawn zombies, human NPCs and items using the spawn writer.
- * Expects the same mapMeta that writeMapAndGame wrote to the game doc.
- *
- * @param {object} params
- * @param {string} params.gameId
- * @param {object} params.mapMeta
- * @param {object} params.spawnWriter - from makeSpawnStateWriter(...)
- */
 async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
-  // --- Guard: nothing to spawn without terrain ---
-  if (!mapMeta || !Array.isArray(mapMeta.terrain) || mapMeta.terrain.length === 0) {
-    return; // nothing else we can do
-  }
+  if (!mapMeta || !Array.isArray(mapMeta.terrain) || mapMeta.terrain.length === 0) return;
 
   const rows = mapMeta.terrain;
   const height = rows.length;
@@ -26,25 +14,28 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   const totalTiles = width * height;
 
   // ---------------------------------------------------------------------------
-  // Zombies (same density as before)
+  // Zombies
   // ---------------------------------------------------------------------------
   const density = typeof ZOMBIE?.DENSITY === 'number' ? ZOMBIE.DENSITY : 0.04;
   let desiredZombies = Math.floor(totalTiles * density);
 
-  if (typeof ZOMBIE?.MIN === 'number') {
-    desiredZombies = Math.max(desiredZombies, ZOMBIE.MIN);
-  }
-  if (typeof ZOMBIE?.MAX === 'number') {
-    desiredZombies = Math.min(desiredZombies, ZOMBIE.MAX);
-  }
-  if (!Number.isFinite(desiredZombies) || desiredZombies < 1) {
-    desiredZombies = 1;
-  }
+  if (typeof ZOMBIE?.MIN === 'number') desiredZombies = Math.max(desiredZombies, ZOMBIE.MIN);
+  if (typeof ZOMBIE?.MAX === 'number') desiredZombies = Math.min(desiredZombies, ZOMBIE.MAX);
+  if (!Number.isFinite(desiredZombies) || desiredZombies < 1) desiredZombies = 1;
 
   const zombieSpawns = [];
   let safetyZ = 0;
   let spawnedZ = 0;
   const maxTriesZ = desiredZombies * 30;
+
+  function pickZombieKind() {
+    // tweak anytime; must exist in resolver/registry
+    const r = Math.random();
+    if (r < 0.65) return 'WALKER';
+    if (r < 0.85) return 'RUNNER';
+    if (r < 0.97) return 'SMART';
+    return 'HULK';
+  }
 
   while (spawnedZ < desiredZombies && safetyZ < maxTriesZ) {
     safetyZ += 1;
@@ -55,14 +46,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-    // Terrain codes from config (TILES):
-    // ROAD, BUILD, CEMETERY, PARK, FOREST, WATER
-    if (ch === TILES.WATER) {
-      // No swimming zombies.
-      continue;
-    }
+    if (ch === TILES.WATER) continue;
 
-    zombieSpawns.push({ x, y, kind: 'WALKER' });
+    zombieSpawns.push({ x, y, kind: pickZombieKind() });
     spawnedZ += 1;
   }
 
@@ -71,9 +57,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Human NPCs — CIVILIAN / RAIDER / TRADER mix
+  // Humans — CIVILIAN / RAIDER / TRADER mix
   // ---------------------------------------------------------------------------
-  const HUMAN_DENSITY = 0.01; // ~1% of tiles
+  const HUMAN_DENSITY = 0.01;
   const HUMAN_MIN = 3;
   const HUMAN_MAX = 40;
 
@@ -86,7 +72,6 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   const maxTriesH = desiredHumans * 30;
 
   function pickHumanKind() {
-    // 70% CIVILIAN, 20% RAIDER, 10% TRADER (tweak later)
     const r = Math.random();
     if (r < 0.70) return 'CIVILIAN';
     if (r < 0.90) return 'RAIDER';
@@ -113,9 +98,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Items — simple mix of POLICE / SHOP kinds (no building logic yet)
+  // Items — must be real ITEM kinds (no POLICE_/SHOP_ legacy)
   // ---------------------------------------------------------------------------
-  const ITEM_DENSITY = 0.015; // ~1.5% of tiles
+  const ITEM_DENSITY = 0.015;
   const ITEM_MIN = 5;
   const ITEM_MAX = 60;
 
@@ -127,17 +112,31 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   let spawnedI = 0;
   const maxTriesI = desiredItems * 30;
 
-  // These kinds must match what resolveEntityConfig('ITEM', kind) understands.
   const ITEM_KIND_POOL = [
-    'POLICE_WEAPON', // e.g. pistol / shotgun
-    'POLICE_ARMOR',  // e.g. vest / helmet
-    'SHOP_WEAPON',   // e.g. baton / knife
-    'SHOP_MISC',     // e.g. water, batteries, etc.
+    // misc/tools/gear
+    'MEDKIT',
+    'MRE',
+    'TOOLKIT',
+    'LOCKPICK',
+    'GENERATOR_PORTABLE',
+
+    // weapons
+    'KNIFE',
+    'BASEBALL_BAT',
+    'PIPE',
+    'PISTOL',
+    'CROSSBOW',
+
+    // armor/clothing
+    'HOODIE',
+    'RIOT_VEST',
+    'HELMET',
+    'WORK_GLOVES',
+    'BOOTS',
   ];
 
   function pickItemKind() {
-    const idx = Math.floor(Math.random() * ITEM_KIND_POOL.length);
-    return ITEM_KIND_POOL[idx];
+    return ITEM_KIND_POOL[Math.floor(Math.random() * ITEM_KIND_POOL.length)];
   }
 
   while (spawnedI < desiredItems && safetyI < maxTriesI) {
@@ -159,7 +158,5 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     await spawnWriter.spawnItems(gameId, itemSpawns);
   }
 }
-// write zombies and players!
-module.exports = {
-  spawnAllForNewGame,
-};
+
+module.exports = { spawnAllForNewGame };
