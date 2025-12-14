@@ -1,0 +1,8 @@
+1.	TYPE is the primary discriminator and exists on every entity doc: HUMAN | ZOMBIE | ITEM | … — never PLAYER.
+	2.	KIND is the subtype within a type: TRADER | WALKER | RUNNER | PISTOL | RIOT_VEST | MEDKIT | ….
+	3.	Players are not a type — they are humans with isPlayer: true (boolean), not a role enum.
+	4.	ENTITY_BASE only contains truly universal fields (e.g. type, kind, name, tags); no world/runtime data.
+	5.	ACTOR_BASE and ITEM_BASE diverge cleanly:
+	•	Actors: hp, ap, combat stats, carryCap
+	•	Items: durability, weight, carryBonus, range
+	6.	Spawner/writer adds world-only fields (id, pos, createdAt, hp/durability current values) — templates are the single source of truth for defaults.

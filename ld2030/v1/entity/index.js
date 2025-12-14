@@ -1,128 +1,68 @@
 // ld2030/v1/entity/index.js
-// Single entry point for all entity configs.
+// Public entrypoint for entity templates + config resolution.
 
-const base   = require('./entity-base');
-const human  = require('./entity-human');
-const zombie = require('./entity-zombie');
-const raider = require('./npc-raider');
-const trader = require('./npc-trader');
-const items  = require('./items/entity-item');
+// Bases
+const baseEntity = require('./base-entity');
+const baseActor  = require('./base-actor');
+const baseItem   = require('./base-item');
 
-// Unified registry so other code can look up configs by key.
-const ENTITY_CONFIG = {
-  // Actors – players & humans
-  PLAYER: human.PLAYER,
-  HUMAN_CIVILIAN: human.HUMAN_CIVILIAN,
-  HUMAN_RAIDER: raider.NPC_HUMAN_RAIDER,
-  HUMAN_TRADER: trader.NPC_HUMAN_TRADER,
+// Templates (raw)
+const humans  = require('./humans/human');
+const zombies = require('./zombies/zombie');
+const items   = require('./items/item');
+const weapons = require('./items/weapon');
+const armor   = require('./items/armor');
 
-  // Zombies
-  ZOMBIE_WALKER: zombie.ZOMBIE_WALKER,
+// Resolution plumbing
+const { resolveEntityKey, resolveEntityKeyFlexible } = require('./resolver');
+const { getEntityConfig, getEntityConfigOrThrow, ENTITY_CONFIG } = require('./registry');
 
-  // Item bases
-  ITEM_GENERIC: items.ITEM_GENERIC,
-  ITEM_WEAPON_GENERIC: items.ITEM_WEAPON_GENERIC,
-  ITEM_ARMOR_GENERIC: items.ITEM_ARMOR_GENERIC,
-
-  // Concrete “building-flavoured” items
-  ITEM_WEAPON_POLICE_PISTOL: items.ITEM_WEAPON_POLICE_PISTOL,
-  ITEM_ARMOR_POLICE_VEST: items.ITEM_ARMOR_POLICE_VEST,
-  ITEM_WEAPON_SHOP_KNIFE: items.ITEM_WEAPON_SHOP_KNIFE,
-  // SHOP_MISC maps to any of the misc items
-  ITEM_SHOP_MISC_BATTERY: items.MISC_BATTERY,
-  ITEM_SHOP_MISC_TOOLKIT: items.MISC_TOOLKIT,
-  ITEM_SHOP_MISC_WATER: items.MISC_WATER_BOTTLE,
-};
-
-// Internal helper: map (type, kind) → concrete config.
-function resolveByTypeKind(type, kind) {
-  if (!type) return null;
-  const upType = String(type).toUpperCase();
-  const upKind = String(kind || 'DEFAULT').toUpperCase();
-
-  if (upType === 'PLAYER') {
-    return ENTITY_CONFIG.PLAYER;
-  }
-
-  if (upType === 'HUMAN') {
-    if (upKind === 'CIVILIAN' || upKind === 'DEFAULT') return ENTITY_CONFIG.HUMAN_CIVILIAN;
-    if (upKind === 'RAIDER') return ENTITY_CONFIG.HUMAN_RAIDER;
-    if (upKind === 'TRADER') return ENTITY_CONFIG.HUMAN_TRADER;
-  }
-
-  if (upType === 'ZOMBIE') {
-    if (upKind === 'WALKER' || upKind === 'DEFAULT') return ENTITY_CONFIG.ZOMBIE_WALKER;
-  }
-
-  if (upType === 'ITEM') {
-    if (upKind === 'GENERIC' || upKind === 'DEFAULT') return ENTITY_CONFIG.ITEM_GENERIC;
-    if (upKind === 'WEAPON' || upKind === 'WEAPON_GENERIC') return ENTITY_CONFIG.ITEM_WEAPON_GENERIC;
-    if (upKind === 'ARMOR' || upKind === 'ARMOR_GENERIC') return ENTITY_CONFIG.ITEM_ARMOR_GENERIC;
-
-    // Building-flavoured item kinds (used by spawn)
-    if (upKind === 'POLICE_WEAPON') return ENTITY_CONFIG.ITEM_WEAPON_POLICE_PISTOL;
-    if (upKind === 'POLICE_ARMOR')  return ENTITY_CONFIG.ITEM_ARMOR_POLICE_VEST;
-    if (upKind === 'SHOP_WEAPON')   return ENTITY_CONFIG.ITEM_WEAPON_SHOP_KNIFE;
-    if (upKind === 'SHOP_MISC')     return ENTITY_CONFIG.ITEM_SHOP_MISC_BATTERY; // any misc is fine
-  }
-
-  return null;
+/**
+ * Resolve a template config by (type, kind).
+ * This is the ONLY supported way to map runtime docs -> template defaults.
+ * Returns null if unknown.
+ */
+function resolveEntityConfig(type, kind) {
+  const key = resolveEntityKey(type, kind);
+  if (!key) return null;
+  return getEntityConfig(key);
 }
 
 /**
- * Flexible resolver used by the rest of the backend.
- *
- * Supported call shapes:
- *  - resolveEntityConfig('PLAYER')
- *  - resolveEntityConfig('ZOMBIE', 'WALKER')
- *  - resolveEntityConfig('ITEM', 'POLICE_WEAPON')
- *  - resolveEntityConfig({ type: 'ZOMBIE', kind: 'walker' })
+ * Flexible resolver:
+ * - (type, kind)
+ * - ({type, kind})
+ * - (registryKey)
  */
-function resolveEntityConfig(a, b) {
-  // Object with type/kind (e.g. Firestore doc)
-  if (a && typeof a === 'object') {
-    return resolveByTypeKind(a.type, a.kind);
-  }
-
-  // type + kind
-  if (typeof a === 'string' && typeof b === 'string') {
-    return resolveByTypeKind(a, b);
-  }
-
-  // single registry key
-  if (typeof a === 'string') {
-    return ENTITY_CONFIG[a] || null;
-  }
-
-  return null;
-}
-
-function getEntityConfig(key) {
-  return ENTITY_CONFIG[key] || null;
-}
-
-function getEntityConfigOrThrow(key) {
-  const cfg = ENTITY_CONFIG[key];
-  if (!cfg) {
-    throw new Error(`Unknown entity config key: ${key}`);
-  }
-  return cfg;
+function resolveEntityConfigFlexible(a, b) {
+  const key = resolveEntityKeyFlexible(a, b);
+  if (!key) return null;
+  return getEntityConfig(key);
 }
 
 module.exports = {
-  // Bases
-  ...base,
+  // bases
+  ...baseEntity,
+  ...baseActor,
+  ...baseItem,
 
-  // Concrete entities
-  ...human,
-  ...zombie,
-  ...raider,
-  ...trader,
+  // templates (raw exports; useful for tests/tools)
+  ...humans,
+  ...zombies,
   ...items,
+  ...weapons,
+  ...armor,
 
-  // Registry
+  // registry (optional but handy)
   ENTITY_CONFIG,
   getEntityConfig,
   getEntityConfigOrThrow,
+
+  // resolver (pure key mapping)
+  resolveEntityKey,
+  resolveEntityKeyFlexible,
+
+  // main API used by engine/spawn/tick
   resolveEntityConfig,
+  resolveEntityConfigFlexible,
 };

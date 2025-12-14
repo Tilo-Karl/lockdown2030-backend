@@ -16,10 +16,10 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
    */
   async function findEntityByIdTx(tx, gameId, entityId) {
     const cols = [
-      { type: 'PLAYER', col: state.playersCol(gameId) },
-      { type: 'ZOMBIE', col: state.zombiesCol(gameId) },
+      { type: 'PLAYER',    col: state.playersCol(gameId) },
+      { type: 'ZOMBIE',    col: state.zombiesCol(gameId) },
       { type: 'HUMAN_NPC', col: state.npcsCol(gameId) },
-      { type: 'ITEM', col: state.itemsCol(gameId) },
+      { type: 'ITEM',      col: state.itemsCol(gameId) },
     ];
 
     for (const entry of cols) {
@@ -40,10 +40,14 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
   /**
    * Core unified attack helper.
    *
-   * For now we assume the attacker is always a PLAYER (the current user),
-   * so callers only need to pass attackerId + targetId.
+   * Callers only pass attackerId + targetId (+ optional overrides).
+   * We infer types from Firestore docs via findEntityByIdTx.
    *
-   * Later we can generalize if NPCs / zombies initiate attacks.
+   * Works for:
+   *  - player → zombie
+   *  - player → human NPC
+   *  - player → item
+   *  - zombie/NPC → player (when tick/AI calls it)
    */
   async function attackEntity({
     gameId = 'lockdown2030',
@@ -70,14 +74,14 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
     let deadForReturn = null;
 
     await db.runTransaction(async (tx) => {
-      // Attacker: we currently only support the player as attacker.
-      const attackerRef = state.playersCol(gameId).doc(attackerId);
-      const attackerSnap = await tx.get(attackerRef);
-      if (!attackerSnap.exists) {
+      // Attacker: look up by id across all collections.
+      const attackerInfo = await findEntityByIdTx(tx, gameId, attackerId);
+      if (!attackerInfo) {
         throw new Error('attackEntity: attacker_not_found');
       }
 
-      const attackerData = attackerSnap.data() || {};
+      const attackerRef  = attackerInfo.ref;
+      const attackerData = attackerInfo.data;
 
       // Target: probe all collections until we find a matching id.
       const targetInfo = await findEntityByIdTx(tx, gameId, targetId);
@@ -85,27 +89,28 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
         throw new Error('attackEntity: entity_not_found');
       }
 
-      const targetRef = targetInfo.ref;
+      const targetRef  = targetInfo.ref;
       const targetData = targetInfo.data;
 
       // Track types/kinds for the response.
-      attackerTypeForReturn = attackerData.type || 'PLAYER';
+      attackerTypeForReturn = attackerInfo.type || attackerData.type || 'UNKNOWN';
       attackerKindForReturn = attackerData.kind || null;
-      targetTypeForReturn = targetInfo.type || targetData.type || 'UNKNOWN';
-      targetKindForReturn = targetData.kind || null;
+      targetTypeForReturn   = targetInfo.type || targetData.type || 'UNKNOWN';
+      targetKindForReturn   = targetData.kind || null;
 
       // Resolve attacker config based on stored entity doc (type/kind).
       const attackerDescriptor = attackerData.type
         ? attackerData
-        : { type: 'PLAYER', kind: 'DEFAULT' };
+        : { type: attackerTypeForReturn, kind: attackerKindForReturn || 'DEFAULT' };
+
       const attackerCfg = resolveEntityConfig(attackerDescriptor) || {};
 
       const apCost = overrideApCost ?? attackerCfg.attackApCost ?? 1;
       const damage = overrideDamage ?? attackerCfg.attackDamage ?? 1;
 
       // For now only gate AP for player attacks.
-      const gateAp = true;
-      const curAp = attackerData.ap ?? 0;
+      const gateAp = attackerTypeForReturn === 'PLAYER';
+      const curAp  = attackerData.ap ?? 0;
       if (gateAp && curAp < apCost) {
         throw new Error('attackEntity: not_enough_ap');
       }
@@ -121,17 +126,19 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
       // Track for return payload
       attackerHp = attackerData.hp ?? null;
       attackerAp = newAp;
-      targetHp = newHp;
+      targetHp   = newHp;
 
       damageForReturn = damage;
-      hitForReturn = didHit;
-      deadForReturn = isDead;
+      hitForReturn    = didHit;
+      deadForReturn   = isDead;
 
       const attackerWrite = {
         ...attackerData,
-        ap: newAp,
         updatedAt: serverTs(),
       };
+      if (gateAp) {
+        attackerWrite.ap = newAp;
+      }
 
       tx.set(attackerRef, attackerWrite, { merge: true });
 
