@@ -8,7 +8,6 @@ const HUMAN_PLAYER = {
   type: 'HUMAN',
   kind: 'PLAYER',
   name: 'Survivor',
-  isPlayer: true,
   tags: ['faction:survivor'],
 
   maxHp: 100,
