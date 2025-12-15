@@ -84,9 +84,9 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a human actor doc (npcs collection). */
-  async function updateNpc(gameId, npcId, data) {
-    const ref = state.npcsCol(gameId).doc(npcId);
+  /** Generic helper: merge data into a human actor doc (humans collection). */
+  async function updateHuman(gameId, humanId, data) {
+    const ref = state.humansCol(gameId).doc(humanId);
     await db.runTransaction(async (tx) => {
       await ensureCreatedAtTx(tx, ref);
       tx.set(
@@ -139,7 +139,7 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     movePlayer,
     updatePlayer,
     updateZombie,
-    updateNpc,
+    updateHuman,
     updateItem,
     writeGameMeta,
   };

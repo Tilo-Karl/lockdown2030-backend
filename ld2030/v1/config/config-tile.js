@@ -14,7 +14,7 @@ const TILES = {
   CEMETERY: '2', // outdoor graveyard terrain
   PARK:     '3', // open green area, walkable
   FOREST:   '4', // dense area, maybe LOS penalty / slower
-  WATER:    '5', // swim / high AP cost or blocked for some units
+  WATER:    '5', // swim / high AP cost (NOT blocked yet)
 };
 
 /**
@@ -34,6 +34,7 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: false,
+    // moveCost: 1,
   },
 
   [TILES.BUILD]: {
@@ -45,6 +46,7 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: false,
+    // moveCost: 1,
   },
 
   [TILES.CEMETERY]: {
@@ -56,6 +58,7 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: true,
+    // moveCost: 1,
   },
 
   [TILES.PARK]: {
@@ -67,6 +70,7 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: true,
+    // moveCost: 1,
   },
 
   [TILES.FOREST]: {
@@ -78,17 +82,19 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: true,
+    // moveCost: 2, // optional future knob
   },
 
   [TILES.WATER]: {
     key: 'WATER',
     label: 'Water',
     colorHex: '#0EA5E9',
-    blocksMovement: true,    // future movement rules
+    blocksMovement: false,   // NOT blocked yet (you said you can swim)
     blocksVision: false,
     playerSpawnAllowed: false,
     zombieSpawnAllowed: false,
     natural: true,
+    // moveCost: 3, // optional future knob: swimming is expensive
   },
 };
 

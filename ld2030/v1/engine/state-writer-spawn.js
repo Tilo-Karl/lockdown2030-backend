@@ -1,13 +1,8 @@
 // ld2030/v1/engine/state-writer-spawn.js
-// Spawn helpers (zombies, human actors, items).
+// Spawn helpers (zombies, humans, items).
 // NEW MODEL (no legacy):
 // - Actors use: maxHp/maxAp + currentHp/currentAp
 // - Items use: durabilityMax + currentDurability
-// - Templates are the single source of truth for defaults.
-// - Spawner adds runtime/world fields: pos, createdAt, updatedAt, current* values.
-//
-// Improvement:
-// - Stamp faction explicitly on spawned ACTORS (derived from tmpl.faction or tags 'faction:*').
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -18,11 +13,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  const { zombiesCol, npcsCol, itemsCol } = state;
-
-  // ---------------------------------------------------------------------------
-  // Helpers: template -> Firestore doc (runtime fields injected here)
-  // ---------------------------------------------------------------------------
+  const { zombiesCol, humansCol, itemsCol } = state;
 
   function extractFactionFromTemplate(tmpl) {
     if (tmpl && typeof tmpl.faction === 'string' && tmpl.faction.trim()) {
@@ -36,7 +27,6 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
         if (f) return f;
       }
     }
-    // Sensible defaults if not provided
     if (String(tmpl?.type || '').toUpperCase() === 'ZOMBIE') return 'zombie';
     return 'neutral';
   }
@@ -44,26 +34,15 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
   function buildActorDocFromTemplate(tmpl, extra) {
     const maxHp = Number.isFinite(tmpl.maxHp) ? tmpl.maxHp : 50;
     const maxAp = Number.isFinite(tmpl.maxAp) ? tmpl.maxAp : 2;
-
-    // Explicit faction stamp (single canonical field on the doc)
     const faction = extractFactionFromTemplate(tmpl);
 
     return {
-      // template defaults (includes BASE_ACTOR shape)
       ...tmpl,
-
-      // canonical relations field
       faction,
-
-      // runtime/current values (authoritative on the doc)
       currentHp: maxHp,
       currentAp: maxAp,
-
-      // timestamps
       createdAt: serverTs(),
       updatedAt: serverTs(),
-
-      // world fields
       ...extra,
     };
   }
@@ -72,34 +51,20 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
     const durabilityMax = Number.isFinite(tmpl.durabilityMax) ? tmpl.durabilityMax : 1;
 
     return {
-      // template defaults (includes BASE_ITEM shape)
       ...tmpl,
-
-      // runtime/current values
       currentDurability: durabilityMax,
-
-      // timestamps
       createdAt: serverTs(),
       updatedAt: serverTs(),
-
-      // world fields
       ...extra,
     };
   }
 
-  // ---------------------------------------------------------------------------
-  // ZOMBIES
-  // spawns: [{ x, y, kind }]
-  // ---------------------------------------------------------------------------
   async function spawnZombies(gameId, spawns) {
     if (!gameId) throw new Error('spawnZombies: missing gameId');
 
     const col = zombiesCol(gameId);
-    if (!Array.isArray(spawns) || spawns.length === 0) {
-      return { ok: true, count: 0 };
-    }
+    if (!Array.isArray(spawns) || spawns.length === 0) return { ok: true, count: 0 };
 
-    // Clear existing zombies for this game (fresh round)
     const existing = await col.get();
     if (!existing.empty) {
       const delBatch = db.batch();
@@ -117,11 +82,9 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
       const kindKey = String(spawn.kind || 'WALKER').trim().toUpperCase();
       const tmpl = resolveEntityConfig('ZOMBIE', kindKey);
-      if (!tmpl) return; // no fallbacks
+      if (!tmpl) return;
 
-      const doc = buildActorDocFromTemplate(tmpl, {
-        pos: { x, y },
-      });
+      const doc = buildActorDocFromTemplate(tmpl, { pos: { x, y } });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -132,20 +95,12 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
     return { ok: true, count };
   }
 
-  // ---------------------------------------------------------------------------
-  // HUMANS (non-player actors)
-  // spawns: [{ x, y, kind }]
-  // NOTE: stored in npcs collection, but type on doc is HUMAN.
-  // ---------------------------------------------------------------------------
   async function spawnHumans(gameId, spawns) {
     if (!gameId) throw new Error('spawnHumans: missing gameId');
 
-    const col = npcsCol(gameId);
-    if (!Array.isArray(spawns) || spawns.length === 0) {
-      return { ok: true, count: 0 };
-    }
+    const col = humansCol(gameId);
+    if (!Array.isArray(spawns) || spawns.length === 0) return { ok: true, count: 0 };
 
-    // Clear existing humans for this game (fresh round)
     const existing = await col.get();
     if (!existing.empty) {
       const delBatch = db.batch();
@@ -165,9 +120,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('HUMAN', kindKey);
       if (!tmpl) return;
 
-      const doc = buildActorDocFromTemplate(tmpl, {
-        pos: { x, y },
-      });
+      const doc = buildActorDocFromTemplate(tmpl, { pos: { x, y } });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -178,19 +131,12 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
     return { ok: true, count };
   }
 
-  // ---------------------------------------------------------------------------
-  // ITEMS
-  // spawns: [{ x, y, kind }]
-  // ---------------------------------------------------------------------------
   async function spawnItems(gameId, spawns) {
     if (!gameId) throw new Error('spawnItems: missing gameId');
 
     const col = itemsCol(gameId);
-    if (!Array.isArray(spawns) || spawns.length === 0) {
-      return { ok: true, count: 0 };
-    }
+    if (!Array.isArray(spawns) || spawns.length === 0) return { ok: true, count: 0 };
 
-    // Clear existing items for this game (fresh round)
     const existing = await col.get();
     if (!existing.empty) {
       const delBatch = db.batch();
@@ -210,9 +156,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('ITEM', kindKey);
       if (!tmpl) return;
 
-      const doc = buildItemDocFromTemplate(tmpl, {
-        pos: { x, y },
-      });
+      const doc = buildItemDocFromTemplate(tmpl, { pos: { x, y } });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -225,8 +169,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
   return {
     spawnZombies,
-    // keep the old name for the call site, but it’s HUMAN docs
-    spawnHumanNpcs: spawnHumans,
+    spawnHumans,
     spawnItems,
   };
 };

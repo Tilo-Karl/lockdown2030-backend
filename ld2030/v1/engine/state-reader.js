@@ -26,8 +26,8 @@ module.exports = function makeStateReader({ db, state }) {
       return state.zombiesCol(gameId);
     },
 
-    npcsCol(gameId) {
-      return state.npcsCol(gameId);
+    humansCol(gameId) {
+      return state.humansCol(gameId);
     },
 
     itemsCol(gameId) {

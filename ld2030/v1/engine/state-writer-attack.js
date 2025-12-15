@@ -14,7 +14,7 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
     const cols = [
       state.playersCol(gameId),
       state.zombiesCol(gameId),
-      state.npcsCol(gameId),
+      state.humansCol(gameId),
       state.itemsCol(gameId),
     ];
 

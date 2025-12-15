@@ -1,6 +1,5 @@
 // ld2030/v1/state-spawn.js — spawn zombies, humans and items for a new game
 
-const { TILES } = require('./config');
 const { ZOMBIE } = require('./config/config-game');
 
 async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
@@ -10,6 +9,29 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   const height = rows.length;
   const width = rows[0]?.length || 0;
   if (width <= 0 || height <= 0) return;
+
+  // This comes from your game doc: games/{gameId}.mapMeta.tileMeta
+  // (written by state.js from config-tile)
+  const tileMeta = mapMeta.tileMeta || {};
+
+  function canSpawnZombieOn(ch) {
+    const m = tileMeta[ch];
+    if (!m) return false;
+    return m.zombieSpawnAllowed !== false;
+  }
+
+  function canSpawnHumanOn(ch) {
+    const m = tileMeta[ch];
+    if (!m) return false;
+    return m.playerSpawnAllowed !== false;
+  }
+
+  function canSpawnItemOn(ch) {
+    const m = tileMeta[ch];
+    if (!m) return false;
+    // Items follow the same “don’t spawn where players shouldn’t spawn” rule
+    return m.playerSpawnAllowed !== false;
+  }
 
   const totalTiles = width * height;
 
@@ -29,7 +51,6 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   const maxTriesZ = desiredZombies * 30;
 
   function pickZombieKind() {
-    // tweak anytime; must exist in resolver/registry
     const r = Math.random();
     if (r < 0.65) return 'WALKER';
     if (r < 0.85) return 'RUNNER';
@@ -46,7 +67,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-    if (ch === TILES.WATER) continue;
+
+    // Spawn rule: respect tileMeta (NOT movement blocking; just spawn allowed)
+    if (!canSpawnZombieOn(ch)) continue;
 
     zombieSpawns.push({ x, y, kind: pickZombieKind() });
     spawnedZ += 1;
@@ -57,7 +80,7 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   }
 
   // ---------------------------------------------------------------------------
-  // Humans — CIVILIAN / RAIDER / TRADER mix
+  // Humans
   // ---------------------------------------------------------------------------
   const HUMAN_DENSITY = 0.01;
   const HUMAN_MIN = 3;
@@ -87,18 +110,20 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-    if (ch === TILES.WATER) continue;
+
+    // Spawn rule: respect tileMeta spawn rules
+    if (!canSpawnHumanOn(ch)) continue;
 
     humanSpawns.push({ x, y, kind: pickHumanKind() });
     spawnedH += 1;
   }
 
   if (humanSpawns.length > 0) {
-    await spawnWriter.spawnHumanNpcs(gameId, humanSpawns);
+    await spawnWriter.spawnHumans(gameId, humanSpawns);
   }
 
   // ---------------------------------------------------------------------------
-  // Items — must be real ITEM kinds (no POLICE_/SHOP_ legacy)
+  // Items
   // ---------------------------------------------------------------------------
   const ITEM_DENSITY = 0.015;
   const ITEM_MIN = 5;
@@ -113,21 +138,16 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   const maxTriesI = desiredItems * 30;
 
   const ITEM_KIND_POOL = [
-    // misc/tools/gear
     'MEDKIT',
     'MRE',
     'TOOLKIT',
     'LOCKPICK',
     'GENERATOR_PORTABLE',
-
-    // weapons
     'KNIFE',
     'BASEBALL_BAT',
     'PIPE',
     'PISTOL',
     'CROSSBOW',
-
-    // armor/clothing
     'HOODIE',
     'RIOT_VEST',
     'HELMET',
@@ -148,7 +168,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-    if (ch === TILES.WATER) continue;
+
+    // Spawn rule: respect tileMeta spawn rules
+    if (!canSpawnItemOn(ch)) continue;
 
     itemSpawns.push({ x, y, kind: pickItemKind() });
     spawnedI += 1;

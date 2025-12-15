@@ -8,7 +8,7 @@ module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(gameId);
   const playersCol = (gameId) => gameRef(gameId).collection('players');
   const zombiesCol = (gameId) => gameRef(gameId).collection('zombies');
-  const npcsCol    = (gameId) => gameRef(gameId).collection('npcs');
+  const humansCol  = (gameId) => gameRef(gameId).collection('humans');
   const itemsCol   = (gameId) => gameRef(gameId).collection('items');
 
   // Spawn writer uses the same collections
@@ -16,14 +16,14 @@ module.exports = function makeState(db, admin) {
     gameRef,
     playersCol,
     zombiesCol,
-    npcsCol,
+    humansCol,
     itemsCol,
   };
   const spawnWriter = makeSpawnStateWriter({ db, admin, state: stateForSpawn });
 
   /**
    * Create/overwrite the map (only if missing or force=true) and stamp game meta.
-   * Also spawns zombies, human NPCs and items using the spawn writer.
+   * Also spawns zombies, humans and items using the spawn writer.
    */
   async function writeMapAndGame({
     gameId,
@@ -66,6 +66,16 @@ module.exports = function makeState(db, admin) {
 
     // Always (re)stamp game metadata so you see a change
     const mapMeta = mapDoc ? mapDoc.meta : undefined;
+
+    // IMPORTANT: the spawner reads from the in-memory mapMeta argument we pass in.
+    // We inject tileMeta here so spawnAllForNewGame can use blocksMovement, etc.
+    const mapMetaForSpawn = mapMeta
+      ? {
+          ...mapMeta,
+          tileMeta: tileMetaForFirestore,
+        }
+      : mapMeta;
+
     batch.set(
       gRef,
       {
@@ -89,6 +99,7 @@ module.exports = function makeState(db, admin) {
               params: mapMeta.params ?? null,
               buildings: mapMeta.buildings || [],
               buildingPalette: mapMeta.buildingPalette || null,
+              // ✅ THIS is what makes mapMeta.tileMeta exist for the spawner
               tileMeta: tileMetaForFirestore,
             }
           : admin.firestore.FieldValue.delete(),
@@ -102,7 +113,7 @@ module.exports = function makeState(db, admin) {
     // --- Spawns (zombies + humans + items) now live in state-spawn.js ---
     await spawnAllForNewGame({
       gameId,
-      mapMeta,
+      mapMeta: mapMetaForSpawn,
       spawnWriter,
     });
   }
@@ -124,7 +135,7 @@ module.exports = function makeState(db, admin) {
     gameRef,
     playersCol,
     zombiesCol,
-    npcsCol,
+    humansCol,
     itemsCol,
     writeMapAndGame,
     readGridSize,
