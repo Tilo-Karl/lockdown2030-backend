@@ -1,16 +1,10 @@
-// ld2030/v1/engine/equipment-service.js
-// Orchestrates equip/unequip: reads docs, runs PURE rules, prepares a write plan,
-// then asks the writer to apply it transactionally.
-// No Firestore transactions here.
+// ld2030/v1/engine/inventory-service.js
+// Orchestrates pickup/drop: reads docs, computes patchActor + patchItem,
+// then asks state-writer-inventory to apply transactionally.
+// Also recomputes derived carry/encumbrance + moveApCost based on equipped items.
 
 const { resolveEntityConfig } = require('../entity');
-
-const {
-  canEquip,
-  equip,
-  unequip,
-  computeDerivedStats,
-} = require('./equipment-rules');
+const { computeDerivedStats } = require('./equipment-rules');
 
 function uniq(arr) {
   return Array.from(new Set((arr || []).filter(Boolean)));
@@ -31,10 +25,7 @@ function listEquippedItemIdsDeep(equipment) {
   const out = [];
   const walk = (v) => {
     if (!v) return;
-    if (typeof v === 'string') {
-      out.push(v);
-      return;
-    }
+    if (typeof v === 'string') { out.push(v); return; }
     if (typeof v === 'object' && !Array.isArray(v)) {
       for (const vv of Object.values(v)) walk(vv);
     }
@@ -47,7 +38,6 @@ function computeCarryUsed({ inventoryDocs, equippedDocs }) {
   const allItems = []
     .concat(Array.isArray(inventoryDocs) ? inventoryDocs : [])
     .concat(Array.isArray(equippedDocs) ? equippedDocs : []);
-
   let used = 0;
   for (const it of allItems) {
     if (!it) continue;
@@ -79,6 +69,7 @@ function buildDerivedPatch({ actor, actorCfg, derived, carryUsed }) {
 
   const moveApCost = Math.max(0, baseMove + movePenalty);
 
+  // Weapon-derived combat stats stay on actor doc too (so movement/AI can read it fast).
   let attackDamage = baseDmg;
   let attackApCost = baseAp;
   let hitChance = baseHit + (isFiniteNum(derived.hitChanceBonus) ? derived.hitChanceBonus : 0);
@@ -104,7 +95,6 @@ function buildDerivedPatch({ actor, actorCfg, derived, carryUsed }) {
     hitChance,
   };
 
-  // Keep invariant: currentHp <= maxHp
   if (isFiniteNum(actor.currentHp)) {
     patch.currentHp = Math.min(actor.currentHp, maxHp);
   }
@@ -112,106 +102,88 @@ function buildDerivedPatch({ actor, actorCfg, derived, carryUsed }) {
   return patch;
 }
 
-function makeEquipmentService({ reader, writer }) {
-  if (!reader) throw new Error('equipment-service: reader is required');
-  if (!writer) throw new Error('equipment-service: writer is required');
+function makeInventoryService({ reader, writer }) {
+  if (!reader) throw new Error('inventory-service: reader is required');
+  if (!writer) throw new Error('inventory-service: writer is required');
 
-  async function equipItem({ gameId = 'lockdown2030', actorId, itemId }) {
-    if (!actorId || !itemId) throw new Error('equipment-service.equipItem: missing_actorId_or_itemId');
-
+  async function pickupItem({ gameId = 'lockdown2030', actorId, itemId }) {
     const actor = await reader.getActor(gameId, actorId);
     const item = await reader.getItem(gameId, itemId);
-    if (!actor || !item) throw new Error('equipment-service.equipItem: missing_actor_or_item');
+    if (!actor || !item) throw new Error('inventory-service.pickupItem: missing_actor_or_item');
 
-    const inv = Array.isArray(actor.inventory) ? actor.inventory : [];
-    if (!inv.includes(itemId)) throw new Error('equipment-service.equipItem: item_not_in_inventory');
+    const invNow = Array.isArray(actor.inventory) ? actor.inventory : [];
+    if (invNow.includes(itemId)) throw new Error('inventory-service.pickupItem: already_in_inventory');
 
-    const check = canEquip({ actor, item });
-    if (!check.ok) throw new Error(`equipment-service.equipItem: ${check.reason}`);
-
-    const newEquipment = equip(actor, item, itemId);
-
-    const newInventory = inv.filter((id) => id !== itemId);
-
-    const equippedIdsAfter = listEquippedItemIdsDeep(newEquipment);
-    const equippedDocsAfter = await Promise.all(
-      equippedIdsAfter.map((id) => reader.getItem(gameId, id))
-    );
-
-    const derived = computeDerivedStats(equippedDocsAfter);
-
-    const inventoryDocsAfter = await Promise.all(
-      uniq(newInventory).map((id) => reader.getItem(gameId, id))
-    );
-
-    const carryUsed = computeCarryUsed({
-      inventoryDocs: inventoryDocsAfter,
-      equippedDocs: equippedDocsAfter,
-    });
-
-    const actorCfg =
-      resolveEntityConfig(String(actor.type || '').toUpperCase(), String(actor.kind || '').toUpperCase()) || {};
-
-    const derivedPatch = buildDerivedPatch({ actor, actorCfg, derived, carryUsed });
-
-    const patch = {
-      equipment: newEquipment,
-      inventory: newInventory,
-      ...derivedPatch,
-    };
-
-    return writer.equipItem({ gameId, actorId, itemId, patch });
-  }
-
-  async function unequipItem({ gameId = 'lockdown2030', actorId, itemId }) {
-    if (!actorId || !itemId) throw new Error('equipment-service.unequipItem: missing_actorId_or_itemId');
-
-    const actor = await reader.getActor(gameId, actorId);
-    const item = await reader.getItem(gameId, itemId);
-    if (!actor || !item) throw new Error('equipment-service.unequipItem: missing_actor_or_item');
+    // After pickup, inventory includes itemId
+    const newInventory = uniq(invNow.concat([itemId]));
 
     const equippedIds = listEquippedItemIdsDeep(actor.equipment);
-    if (!equippedIds.includes(itemId)) throw new Error('equipment-service.unequipItem: item_not_equipped');
+    const equippedDocs = await Promise.all(equippedIds.map((id) => reader.getItem(gameId, id)));
 
-    const newEquipment = unequip(actor, item);
+    const inventoryDocs = await Promise.all(newInventory.map((id) => reader.getItem(gameId, id)));
 
-    const inv = Array.isArray(actor.inventory) ? actor.inventory : [];
-    const newInventory = uniq(inv.concat([itemId]));
-
-    const equippedIdsAfter = listEquippedItemIdsDeep(newEquipment);
-    const equippedDocsAfter = await Promise.all(
-      equippedIdsAfter.map((id) => reader.getItem(gameId, id))
-    );
-
-    const derived = computeDerivedStats(equippedDocsAfter);
-
-    const inventoryDocsAfter = await Promise.all(
-      uniq(newInventory).map((id) => reader.getItem(gameId, id))
-    );
-
-    const carryUsed = computeCarryUsed({
-      inventoryDocs: inventoryDocsAfter,
-      equippedDocs: equippedDocsAfter,
-    });
+    const derived = computeDerivedStats(equippedDocs);
+    const carryUsed = computeCarryUsed({ inventoryDocs, equippedDocs });
 
     const actorCfg =
       resolveEntityConfig(String(actor.type || '').toUpperCase(), String(actor.kind || '').toUpperCase()) || {};
 
     const derivedPatch = buildDerivedPatch({ actor, actorCfg, derived, carryUsed });
 
-    const patch = {
-      equipment: newEquipment,
+    const patchActor = {
       inventory: newInventory,
       ...derivedPatch,
     };
 
-    return writer.unequipItem({ gameId, actorId, itemId, patch });
+    const patchItem = {
+      carriedBy: actorId,
+      pos: null,
+    };
+
+    return writer.pickupItem({ gameId, actorId, itemId, patchActor, patchItem });
+  }
+
+  async function dropItem({ gameId = 'lockdown2030', actorId, itemId }) {
+    const actor = await reader.getActor(gameId, actorId);
+    const item = await reader.getItem(gameId, itemId);
+    if (!actor || !item) throw new Error('inventory-service.dropItem: missing_actor_or_item');
+
+    const invNow = Array.isArray(actor.inventory) ? actor.inventory : [];
+    if (!invNow.includes(itemId)) throw new Error('inventory-service.dropItem: not_in_inventory');
+
+    const newInventory = invNow.filter((id) => id !== itemId);
+
+    const equippedIds = listEquippedItemIdsDeep(actor.equipment);
+    if (equippedIds.includes(itemId)) throw new Error('inventory-service.dropItem: item_is_equipped');
+
+    const equippedDocs = await Promise.all(equippedIds.map((id) => reader.getItem(gameId, id)));
+    const inventoryDocs = await Promise.all(uniq(newInventory).map((id) => reader.getItem(gameId, id)));
+
+    const derived = computeDerivedStats(equippedDocs);
+    const carryUsed = computeCarryUsed({ inventoryDocs, equippedDocs });
+
+    const actorCfg =
+      resolveEntityConfig(String(actor.type || '').toUpperCase(), String(actor.kind || '').toUpperCase()) || {};
+
+    const derivedPatch = buildDerivedPatch({ actor, actorCfg, derived, carryUsed });
+
+    const patchActor = {
+      inventory: newInventory,
+      ...derivedPatch,
+    };
+
+    const patchItem = {
+      carriedBy: null,
+      pos: actor.pos || null,
+    };
+
+    return writer.dropItem({ gameId, actorId, itemId, patchActor, patchItem });
   }
 
   return {
-    equipItem,
-    unequipItem,
+    pickupItem,
+    dropItem,
   };
 }
 
-module.exports = { makeEquipmentService };
+module.exports = { makeInventoryService };

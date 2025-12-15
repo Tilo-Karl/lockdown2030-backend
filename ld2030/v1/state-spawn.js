@@ -143,6 +143,8 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     'TOOLKIT',
     'LOCKPICK',
     'GENERATOR_PORTABLE',
+    'BACKPACK',
+    'SHOPPING_CART',
     'KNIFE',
     'BASEBALL_BAT',
     'PIPE',

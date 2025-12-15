@@ -1,5 +1,6 @@
 // ld2030/v1/engine/state-writer-attack.js
-// Unified attack path: id-only. NO legacy wrappers. Uses currentHp/currentAp or currentDurability.
+// Unified attack path: id-only. NO legacy wrappers.
+// Uses weapon (if equipped) + armor (if present) + currentHp/currentAp/currentDurability.
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -28,6 +29,17 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
     return null;
   }
 
+  function isFiniteNum(x) {
+    return Number.isFinite(x);
+  }
+
+  function clamp01(x) {
+    if (!Number.isFinite(x)) return 0;
+    if (x < 0) return 0;
+    if (x > 1) return 1;
+    return x;
+  }
+
   async function attackEntity({
     gameId = 'lockdown2030',
     attackerId,
@@ -53,7 +65,6 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
       const attacker = attackerInfo.data;
       const target = targetInfo.data;
 
-      // Must exist on docs in new system
       const aType = String(attacker.type || '').toUpperCase();
       const aKind = String(attacker.kind || '').toUpperCase();
       const tType = String(target.type || '').toUpperCase();
@@ -63,47 +74,81 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
       if (!tType || !tKind) throw new Error('attackEntity: target_missing_type_or_kind');
 
       const attackerCfg = resolveEntityConfig(aType, aKind) || {};
-      const apCost = overrideApCost ?? attackerCfg.attackApCost ?? 1;
-      const damage = overrideDamage ?? attackerCfg.attackDamage ?? 1;
+
+      // Weapon overrides (HUMAN only)
+      let weaponItem = null;
+      if (aType === 'HUMAN') {
+        const weaponId = attacker.equipment?.weapon?.main || null;
+        if (weaponId) {
+          const wRef = state.itemsCol(gameId).doc(weaponId);
+          const wSnap = await tx.get(wRef);
+          if (!wSnap.exists) throw new Error('attackEntity: weapon_missing');
+          weaponItem = wSnap.data() || {};
+          if (String(weaponItem.type || '').toUpperCase() !== 'ITEM') throw new Error('attackEntity: weapon_invalid_type');
+          if (weaponItem.slot !== 'weapon') throw new Error('attackEntity: weapon_invalid_slot');
+        }
+      }
+
+      const baseApCost = isFiniteNum(attackerCfg.attackApCost) ? attackerCfg.attackApCost : 1;
+      const baseDamage = isFiniteNum(attackerCfg.attackDamage) ? attackerCfg.attackDamage : 1;
+      const baseHit = isFiniteNum(attackerCfg.hitChance) ? attackerCfg.hitChance : 0.8;
+
+      const apCost = overrideApCost ?? (
+        isFiniteNum(weaponItem?.attackApCost) ? weaponItem.attackApCost : baseApCost
+      );
+
+      const rawDamage = overrideDamage ?? (
+        isFiniteNum(weaponItem?.damage) ? weaponItem.damage : baseDamage
+      );
+
+      const hitChance = clamp01(
+        baseHit + (isFiniteNum(weaponItem?.hitChanceBonus) ? weaponItem.hitChanceBonus : 0)
+      );
 
       const gateAp = attacker.isPlayer === true;
-      const curAp = Number.isFinite(attacker.currentAp) ? attacker.currentAp : 0;
+      const curAp = isFiniteNum(attacker.currentAp) ? attacker.currentAp : 0;
 
       if (gateAp && curAp < apCost) throw new Error('attackEntity: not_enough_ap');
 
       const nextAp = gateAp ? Math.max(0, curAp - apCost) : curAp;
 
+      // Roll hit/miss (still spends AP if player)
+      const hitRoll = Math.random();
+      const didHit = hitRoll <= hitChance;
+
       // Apply damage to actors vs items
       let targetWrite = { updatedAt: serverTs() };
 
-      if (tType === 'ITEM') {
-        const destructible = target.destructible !== false;
-        const curDur = Number.isFinite(target.currentDurability) ? target.currentDurability : 0;
+      if (didHit) {
+        if (tType === 'ITEM') {
+          const destructible = target.destructible !== false;
+          const curDur = isFiniteNum(target.currentDurability) ? target.currentDurability : 0;
 
-        if (!destructible) {
-          // no-op (still spend AP if player attacked)
-          targetWrite = { updatedAt: serverTs() };
+          if (!destructible) {
+            targetWrite = { updatedAt: serverTs() };
+          } else {
+            const nextDur = Math.max(0, curDur - rawDamage);
+            targetWrite.currentDurability = nextDur;
+            targetWrite.broken = nextDur <= 0;
+          }
         } else {
-          const nextDur = Math.max(0, curDur - damage);
-          targetWrite.currentDurability = nextDur;
-          targetWrite.broken = nextDur <= 0;
+          const alive = target.alive !== false;
+          if (!alive) throw new Error('attackEntity: target_dead');
+
+          const curHp = isFiniteNum(target.currentHp) ? target.currentHp : 0;
+          const tArmor = isFiniteNum(target.armor) ? target.armor : 0;
+          const effectiveDamage = Math.max(0, rawDamage - tArmor);
+
+          const nextHp = Math.max(0, curHp - effectiveDamage);
+
+          targetWrite.currentHp = nextHp;
+          targetWrite.alive = nextHp > 0;
+          if (nextHp <= 0) targetWrite.downed = true;
         }
-      } else {
-        const alive = target.alive !== false;
-        if (!alive) throw new Error('attackEntity: target_dead');
-
-        const curHp = Number.isFinite(target.currentHp) ? target.currentHp : 0;
-        const nextHp = Math.max(0, curHp - damage);
-
-        targetWrite.currentHp = nextHp;
-        targetWrite.alive = nextHp > 0;
-        if (nextHp <= 0) targetWrite.downed = true; // optional; you already have downed in BASE_ACTOR
       }
 
       // Attacker write (AP)
-      const attackerWrite = {
-        updatedAt: serverTs(),
-      };
+      const attackerWrite = { updatedAt: serverTs() };
       if (gateAp) attackerWrite.currentAp = nextAp;
 
       tx.set(attackerRef, attackerWrite, { merge: true });
