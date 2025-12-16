@@ -1,7 +1,7 @@
 // ld2030/v1/city-layout.js
 // City terrain generator: roads, districts, parks/forest/water, lab location.
 
-const { TILES, MAP } = require('./config');
+const { TILES, MAP, DISTRICTS } = require('./config');
 
 // Tiny seeded PRNG (same as in map-gen; duplication is fine)
 function mulberry32(seed) {
@@ -44,17 +44,10 @@ function generateHybridLayout({
   const ZONE_CIV = 'CIV';
 
   // ----- District centres -----
-  const area = w * h;
-  let districtCount;
-  if (area <= 12 * 12) {
-    districtCount = 3;
-  } else if (area <= 16 * 16) {
-    districtCount = 4;
-  } else if (area <= 24 * 24) {
-    districtCount = 5;
-  } else {
-    districtCount = 6;
-  }
+  const districtsEnabled = DISTRICTS && DISTRICTS.ENABLED === true;
+  const districtCount = districtsEnabled
+    ? (typeof DISTRICTS.countForGrid === 'function' ? DISTRICTS.countForGrid({ w, h }) : 1)
+    : 1;
 
   const districtCenters = [];
   for (let i = 0; i < districtCount; i++) {

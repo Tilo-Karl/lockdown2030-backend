@@ -7,7 +7,7 @@ const {
   NATURAL_TILE_KEYS,
   SPAWN_AVOID_TILE_CODES,
 } = require('./config-tile');
-const { GRID, MAP, PLAYER } = require('./config-game');
+const { GRID, MAP, PLAYER, ZOMBIE, DISTRICTS } = require('./config-game');
 const TICK = require('./config-tick');
 
 module.exports = {
@@ -21,6 +21,8 @@ module.exports = {
   GRID,
   MAP,
   PLAYER,
+  ZOMBIE,
+  DISTRICTS,
 
   // Tick / turn config (AP regen, zombie pacing, etc.)
   TICK,

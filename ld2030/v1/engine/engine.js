@@ -3,6 +3,7 @@
 // Engine coordinates rules + services, does not do Firestore transactions itself.
 
 const { makeEquipmentService } = require('./equipment-service');
+const { planMove } = require('./move-rules');
 
 function makeEngine({ reader, writer }) {
   if (!reader) throw new Error('engine: reader is required');
@@ -29,16 +30,27 @@ function makeEngine({ reader, writer }) {
     if (!uid) throw new Error('MOVE: uid is required');
 
     const game = await reader.getGame(gameId);
-    const gridSize = game?.gridsize || { w: 32, h: 32 };
+    if (!game) throw new Error('MOVE: game_not_found');
 
     const actor = await reader.getPlayer(gameId, uid);
-    const pos = actor?.pos || { x: 0, y: 0 };
+    if (!actor) throw new Error('MOVE: actor_not_found');
 
-    const x = Math.min(Math.max((pos.x ?? 0) + Number(dx), 0), gridSize.w - 1);
-    const y = Math.min(Math.max((pos.y ?? 0) + Number(dy), 0), gridSize.h - 1);
+    const plan = planMove({ game, actor, dx, dy });
+    if (!plan.ok) throw new Error(`MOVE: ${plan.reason}`);
 
-    await writer.updatePlayer(gameId, uid, { pos: { x, y } });
-    return { ok: true, gameId, uid, pos: { x, y } };
+    // AP gate: only player actors spend AP
+    if (actor.isPlayer === true) {
+      const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
+      if (curAp < plan.apCost) throw new Error('MOVE: not_enough_ap');
+      const nextAp = Math.max(0, curAp - plan.apCost);
+
+      await writer.updatePlayer(gameId, uid, { pos: plan.to, currentAp: nextAp });
+      return { ok: true, gameId, uid, pos: plan.to, apCost: plan.apCost, currentAp: nextAp };
+    }
+
+    // Non-player move (no AP gate yet)
+    await writer.updatePlayer(gameId, uid, { pos: plan.to });
+    return { ok: true, gameId, uid, pos: plan.to, apCost: plan.apCost };
   }
 
   async function handleAttackEntity({ gameId = 'lockdown2030', uid, targetId }) {

@@ -1,16 +1,18 @@
 // ld2030/v1/map-gen.js
 // Pure, deterministic map generator (no Firebase/Express).
 
-// Shared game config (tile codes, passability, etc.)
 const {
   TILES,
   MAP,
+  DISTRICTS,
   TILE_META,
   NATURAL_TILE_KEYS,
   SPAWN_AVOID_TILE_CODES,
 } = require('./config');
-const { extractBuildings } = require('./map-buildings');
+
+const { extractBuildings, normalizeBuildingType } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
+const { applyNamesToMapMeta } = require('./map-namegen');
 
 // Tiny seeded PRNG
 function mulberry32(seed) {
@@ -23,27 +25,10 @@ function mulberry32(seed) {
   };
 }
 
-// Passability helpers
 function isPassableChar(ch) {
-  // Delegate to config-driven list of passable tiles.
   return NATURAL_TILE_KEYS.includes(ch);
 }
 
-/**
- * Generate a simple city map with:
- * - Cross roads (center row/col)
- * - Random buildings on BUILD tiles
- * - Exactly one LAB coordinate picked on a BUILD tile (no special tile char)
- *
- * Returns rows encoded as strings for compact storage + meta for spawn rules.
- *
- * @param {Object} opts
- * @param {number} opts.seed
- * @param {number} opts.w
- * @param {number} opts.h
- * @param {number} [opts.buildingChance=0.18]  // density tweak
- * @param {number} [opts.minLabDistance=6]     // from map center (Manhattan)
- */
 function generateMap({
   seed,
   w,
@@ -51,7 +36,6 @@ function generateMap({
   buildingChance = MAP.DEFAULT_BUILDING_CHANCE,
   minLabDistance = MAP.DEFAULT_MIN_LAB_DISTANCE,
 }) {
-  // Use the city-layout helper to get terrain + lab position.
   const { rows, lab, buildTiles } = generateCityLayout({
     seed,
     w,
@@ -60,44 +44,47 @@ function generateMap({
     minLabDistance,
   });
 
-  const R = TILES.ROAD;
   const B = TILES.BUILD;
-  const P = TILES.PARK;
-  const F = TILES.FOREST;
-  const W = TILES.WATER;
-  const C = TILES.CEMETERY;
 
-  // Separate seeded RNG for building metadata, so it stays deterministic.
   const rndForBuildings = mulberry32(seed | 0);
   const buildings = extractBuildings(rows, w, h, B, rndForBuildings);
 
+  const districtsEnabled = DISTRICTS && DISTRICTS.ENABLED === true;
+  const districtCount = districtsEnabled
+    ? (typeof DISTRICTS.countForGrid === 'function' ? DISTRICTS.countForGrid({ w, h }) : 1)
+    : 1;
+
   // --- Generic buildings for every BUILD tile (Option C + zoning) ---
   const genericTypes = [
-    'HOUSE', 'APARTMENT', 'SHOP', 'RESTAURANT',
-    'OFFICE', 'WAREHOUSE', 'PARKING'
+    'HOUSE',
+    'SHOP',
+    'BAR',
+    'RESTAURANT',
+    'OFFICE',
+    'WAREHOUSE',
+    'PARKING',
+    'CHURCH',
+    'MOTEL',
   ];
 
-  // Per-zone building pools (simple first pass; can be tuned later)
   const zonePools = {
     RES: [
       'HOUSE', 'HOUSE', 'HOUSE',
-      'APARTMENT', 'APARTMENT',
-      'PARKING'
+      'PARKING',
     ],
     COM: [
       'SHOP', 'SHOP', 'SHOP',
       'RESTAURANT', 'RESTAURANT',
-      'OFFICE'
+      'OFFICE',
+      'BAR',
     ],
     IND: [
       'WAREHOUSE', 'WAREHOUSE',
       'PARKING',
-      'OFFICE'
+      'OFFICE',
     ],
     CIV: [
-      'SCHOOL', 'SCHOOL',
-      'HOSPITAL',
-      'CLINIC',
+      'SCHOOL',
       'PHARMACY',
       'POLICE',
       'FIRE_STATION',
@@ -107,6 +94,9 @@ function generateMap({
       'BUNKER',
       'HQ',
       'RADIO_STATION',
+      'LABORATORY',
+      'TRANSFORMER_SUBSTATION',
+      'CHURCH',
     ],
   };
 
@@ -121,27 +111,67 @@ function generateMap({
 
     const zone = pos.zone || 'RES';
     const pool = zonePools[zone] || genericTypes;
-    const type = pool[Math.floor(rndForBuildings() * pool.length)];
+    const baseType = pool[Math.floor(rndForBuildings() * pool.length)] || 'HOUSE';
+
+    const floors = 1 + Math.floor(rndForBuildings() * 6);
+    const finalType = normalizeBuildingType(baseType, floors);
 
     buildings.push({
       id: `g_${key}`,
-      type,
+      type: finalType,
       root: { x: pos.x, y: pos.y },
       tiles: 1,
-      floors: 1 + Math.floor(rndForBuildings() * 6),
+      floors,
     });
+  }
+
+  // Assign districtId to every building (for UI outlines + gameplay)
+  if (districtsEnabled && typeof DISTRICTS.districtForPos === 'function') {
+    for (const b of buildings) {
+      const rx = b?.root?.x;
+      const ry = b?.root?.y;
+      b.districtId = DISTRICTS.districtForPos({ x: rx, y: ry, w, h, count: districtCount });
+    }
+  } else {
+    for (const b of buildings) b.districtId = 0;
   }
 
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
 
-  // Build terrainPalette from TILE_META so colors come from config-tile.
   const terrainPalette = {};
   Object.values(TILES).forEach((code) => {
     const meta = TILE_META[code];
-    if (meta && meta.colorHex) {
-      terrainPalette[code] = meta.colorHex;
-    }
+    if (meta && meta.colorHex) terrainPalette[code] = meta.colorHex;
+  });
+
+  const mapMeta = {
+    version: 1,
+    lab,
+    center: { x: cx, y: cy },
+    passableChars: NATURAL_TILE_KEYS,
+    spawn: {
+      avoidChars: SPAWN_AVOID_TILE_CODES,
+      safeRadiusFromLab: 2,
+    },
+    params: { buildingChance, minLabDistance },
+    buildings,
+    buildingPalette: MAP.BUILDING_PALETTE,
+    terrainPalette,
+    terrain: rows.map((r) => r.join('')),
+    districts: {
+      enabled: districtsEnabled,
+      count: districtCount,
+    },
+  };
+
+  // Apply city/district/building names AFTER buildings have districtId.
+  applyNamesToMapMeta({
+    mapMeta,
+    seed,
+    w,
+    h,
+    districtCount,
   });
 
   return {
@@ -150,39 +180,18 @@ function generateMap({
     h,
     encoding: 'rows',
     legend: {
-      [TILES.ROAD]:     'road',
-      [TILES.BUILD]:    'build',
-      [TILES.PARK]:     'park',
-      [TILES.FOREST]:   'forest',
-      [TILES.WATER]:    'water',
+      [TILES.ROAD]: 'road',
+      [TILES.BUILD]: 'build',
+      [TILES.PARK]: 'park',
+      [TILES.FOREST]: 'forest',
+      [TILES.WATER]: 'water',
       [TILES.CEMETERY]: 'cemetery',
     },
     data: rows.map((r) => r.join('')),
-    meta: {
-      version: 1,
-      lab,
-      center: { x: cx, y: cy },
-      passableChars: NATURAL_TILE_KEYS,
-      spawn: {
-        avoidChars: SPAWN_AVOID_TILE_CODES,
-        safeRadiusFromLab: 2,
-      },
-      params: { buildingChance, minLabDistance },
-      buildings,
-      buildingPalette: MAP.BUILDING_PALETTE,
-      terrainPalette,
-      terrain: rows.map(r => r.join('')),
-    },
+    meta: mapMeta,
   };
 }
 
-/**
- * Helper: pick a random passable tile from a generated map’s data
- * (pure; does NOT consult Firestore).
- * @param {{data:string[], w:number, h:number, meta?:any}} map
- * @param {function():number} [rng] optional RNG (0..1)
- * @returns {{x:number,y:number}} coordinate
- */
 function randomPassableTile(map, rng = Math.random) {
   const rows = map.data;
   for (let tries = 0; tries < 2000; tries++) {
@@ -191,7 +200,6 @@ function randomPassableTile(map, rng = Math.random) {
     const ch = rows[y].charAt(x);
     if (isPassableChar(ch)) return { x, y };
   }
-  // Fallback linear scan
   for (let y = 0; y < map.h; y++) {
     for (let x = 0; x < map.w; x++) {
       if (isPassableChar(rows[y].charAt(x))) return { x, y };
@@ -206,9 +214,3 @@ module.exports = {
   isPassableChar,
   randomPassableTile,
 };
-
-// ld2030/v1/map-gen.js
-// -----------------------------------------------------------------------------
-// MAP PIPELINE – BACKEND + CLIENT FLOW (2025-11-27)
-// (comment block unchanged)
-// -----------------------------------------------------------------------------
