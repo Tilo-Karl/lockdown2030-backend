@@ -101,6 +101,8 @@ module.exports = function makeState(db, admin) {
               buildingPalette: mapMeta.buildingPalette || null,
               // ✅ THIS is what makes mapMeta.tileMeta exist for the spawner
               tileMeta: tileMetaForFirestore,
+              cityName: mapMeta.cityName || null,
+              districts: mapMeta.districts || null,
             }
           : admin.firestore.FieldValue.delete(),
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),

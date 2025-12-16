@@ -43,6 +43,8 @@ function generateHybridLayout({
   const ZONE_IND = 'IND';
   const ZONE_CIV = 'CIV';
 
+  const area = w * h;
+
   // ----- District centres -----
   const districtsEnabled = DISTRICTS && DISTRICTS.ENABLED === true;
   const districtCount = districtsEnabled
