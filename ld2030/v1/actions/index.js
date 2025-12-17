@@ -1,5 +1,5 @@
 // ld2030/v1/actions/index.js
-// One place to register all action endpoints (move/attack/equip/search/enter/stairs).
+// One place to register all action endpoints (move/attack/equip/search/enter/stairs/climb).
 
 const registerMovePlayer = require('./move-player');
 const registerAttackEntity = require('./attack-entity');
@@ -8,6 +8,8 @@ const registerUnequipItem = require('./unequip-item');
 const registerSearch = require('./search');
 const registerEnterBuilding = require('./enter-building');
 const registerStairs = require('./stairs');
+const registerClimbIn = require('./climb-in');
+const registerClimbOut = require('./climb-out');
 
 module.exports = function registerActions(app, { engine, base }) {
   if (!app) throw new Error('registerActions: app is required');
@@ -24,4 +26,7 @@ module.exports = function registerActions(app, { engine, base }) {
 
   registerEnterBuilding(app, { engine, base });
   registerStairs(app, { engine, base });
+
+  registerClimbIn(app, { engine, base });
+  registerClimbOut(app, { engine, base });
 };

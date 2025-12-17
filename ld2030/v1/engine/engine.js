@@ -12,6 +12,23 @@ function makeEngine({ reader, writer }) {
 
   const equipmentService = makeEquipmentService({ reader, writer });
 
+  function doorIdForTile(x, y) {
+    return `d_${x}_${y}`;
+  }
+
+  function doorDefaults(x, y) {
+    return {
+      doorId: doorIdForTile(x, y),
+      x,
+      y,
+      isOpen: false,
+      isSecured: false,
+      barricadeLevel: 0,
+      broken: false,
+      hp: 0,
+    };
+  }
+
   async function processAction(action) {
     switch (action.type) {
       case 'MOVE':
@@ -22,6 +39,10 @@ function makeEngine({ reader, writer }) {
         return handleEnterBuilding(action);
       case 'STAIRS':
         return handleStairs(action);
+      case 'CLIMB_IN':
+        return handleClimbIn(action);
+      case 'CLIMB_OUT':
+        return handleClimbOut(action);
       case 'ATTACK_ENTITY':
         return handleAttackEntity(action);
       case 'EQUIP_ITEM':
@@ -42,16 +63,15 @@ function makeEngine({ reader, writer }) {
     const actor = await reader.getPlayer(gameId, uid);
     if (!actor) throw new Error('MOVE: actor_not_found');
 
-    // ✅ caching lives outside rules: build/reuse lookup here, pass to planMove
+    // caching lives outside rules
     const mapMeta = game?.mapMeta || {};
     const { byXY } = getBuildingIndex(game, mapMeta);
 
     const plan = planMove({ game, actor, dx, dy, byXY });
     if (!plan.ok) throw new Error(`MOVE: ${plan.reason}`);
 
-    // planMove is authoritative now: { to:{x,y,z}, isInsideBuilding:boolean }
     const nextPos = plan.to;
-    const nextInside = plan.isInsideBuilding;
+    const nextInside = plan.isInsideBuilding === true;
 
     // AP gate: only player actors spend AP
     if (actor.isPlayer === true) {
@@ -64,6 +84,22 @@ function makeEngine({ reader, writer }) {
         isInsideBuilding: nextInside,
         currentAp: nextAp,
       });
+
+      // If this move caused an implicit EXIT, auto-unsecure the door on the tile you exited from.
+      if (actor.isInsideBuilding === true && nextInside === false) {
+        const fx = Number(plan.from?.x);
+        const fy = Number(plan.from?.y);
+        if (Number.isFinite(fx) && Number.isFinite(fy)) {
+          const buildingId = byXY.get(`${fx},${fy}`) || null;
+          if (buildingId) {
+            await writer.updateDoor(gameId, doorIdForTile(fx, fy), {
+              x: fx,
+              y: fy,
+              isSecured: false,
+            });
+          }
+        }
+      }
 
       return {
         ok: true,
@@ -107,8 +143,22 @@ function makeEngine({ reader, writer }) {
 
     const mapMeta = game?.mapMeta || {};
     const { byXY } = getBuildingIndex(game, mapMeta);
+
     const buildingId = byXY.get(`${x},${y}`) || null;
     if (!buildingId) throw new Error('ENTER_BUILDING: must_be_on_building_tile');
+
+    // Door gate (Quarantine model): secured/barricaded blocks entering from outside.
+    const doorId = doorIdForTile(x, y);
+    const door = (typeof reader.getDoor === 'function')
+      ? (await reader.getDoor(gameId, doorId))
+      : null;
+
+    const d = door ? { ...doorDefaults(x, y), ...door } : doorDefaults(x, y);
+
+    // broken doors are effectively open: allow enter
+    const barricadeLevel = Number.isFinite(d.barricadeLevel) ? Number(d.barricadeLevel) : 0;
+    const isBlocked = d.broken === true ? false : (d.isSecured === true || barricadeLevel > 0);
+    if (isBlocked) throw new Error('ENTER_BUILDING: must_climb_in');
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
@@ -171,6 +221,74 @@ function makeEngine({ reader, writer }) {
     });
 
     return { ok: true, gameId, uid, pos: { x, y, z: nextZ }, isInsideBuilding: true, apCost, currentAp: nextAp };
+  }
+
+  async function handleClimbIn({ gameId = 'lockdown2030', uid }) {
+    if (!uid) throw new Error('CLIMB_IN: uid is required');
+
+    const game = await reader.getGame(gameId);
+    if (!game) throw new Error('CLIMB_IN: game_not_found');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    if (!actor) throw new Error('CLIMB_IN: actor_not_found');
+
+    if (actor.isInsideBuilding === true) throw new Error('CLIMB_IN: already_inside');
+
+    const pos = actor.pos || { x: 0, y: 0, z: 0 };
+    const x = Number(pos.x);
+    const y = Number(pos.y);
+    const z = Number.isFinite(pos.z) ? Number(pos.z) : 0;
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('CLIMB_IN: invalid_pos');
+    if (z !== 0) throw new Error('CLIMB_IN: must_be_ground_floor');
+
+    const mapMeta = game?.mapMeta || {};
+    const { byXY } = getBuildingIndex(game, mapMeta);
+    const buildingId = byXY.get(`${x},${y}`) || null;
+    if (!buildingId) throw new Error('CLIMB_IN: must_be_on_building_tile');
+
+    const apCost = 2;
+    const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
+    if (curAp < apCost) throw new Error('CLIMB_IN: not_enough_ap');
+    const nextAp = Math.max(0, curAp - apCost);
+
+    await writer.updatePlayer(gameId, uid, {
+      pos: { x, y, z: 0 },
+      isInsideBuilding: true,
+      currentAp: nextAp,
+    });
+
+    return { ok: true, gameId, uid, pos: { x, y, z: 0 }, isInsideBuilding: true, apCost, currentAp: nextAp };
+  }
+
+  async function handleClimbOut({ gameId = 'lockdown2030', uid }) {
+    if (!uid) throw new Error('CLIMB_OUT: uid is required');
+
+    const game = await reader.getGame(gameId);
+    if (!game) throw new Error('CLIMB_OUT: game_not_found');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    if (!actor) throw new Error('CLIMB_OUT: actor_not_found');
+
+    if (actor.isInsideBuilding !== true) throw new Error('CLIMB_OUT: must_be_inside_building');
+
+    const pos = actor.pos || { x: 0, y: 0, z: 0 };
+    const x = Number(pos.x);
+    const y = Number(pos.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('CLIMB_OUT: invalid_pos');
+
+    const apCost = 1;
+    const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
+    if (curAp < apCost) throw new Error('CLIMB_OUT: not_enough_ap');
+    const nextAp = Math.max(0, curAp - apCost);
+
+    // Outside is always z=0
+    await writer.updatePlayer(gameId, uid, {
+      pos: { x, y, z: 0 },
+      isInsideBuilding: false,
+      currentAp: nextAp,
+    });
+
+    return { ok: true, gameId, uid, pos: { x, y, z: 0 }, isInsideBuilding: false, apCost, currentAp: nextAp };
   }
 
   async function handleSearch({ gameId = 'lockdown2030', uid }) {

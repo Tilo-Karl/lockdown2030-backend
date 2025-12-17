@@ -3,7 +3,6 @@
 // Improvement:
 // - Always stamp updatedAt.
 // - Ensure createdAt exists (set once if missing) for all entity doc writes.
-// - Preserve pos.z when callers update pos with only {x,y} (Firestore map merge replaces the whole map).
 
 module.exports = function makeCoreStateWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-core: db is required');
@@ -12,68 +11,38 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
 
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  function toInt(n, fallback = 0) {
-    const x = Number(n);
-    return Number.isFinite(x) ? Math.trunc(x) : fallback;
-  }
-
-  function normalizePos(existingPos, patchPos) {
-    if (!patchPos || typeof patchPos !== 'object') return undefined;
-
-    const ex = (existingPos && typeof existingPos === 'object') ? existingPos : {};
-    const px = toInt(patchPos.x, toInt(ex.x, 0));
-    const py = toInt(patchPos.y, toInt(ex.y, 0));
-
-    // If caller didn't provide z, preserve existing z (default 0).
-    const z =
-      Number.isFinite(patchPos.z) ? toInt(patchPos.z, 0) :
-      Number.isFinite(ex.z) ? toInt(ex.z, 0) :
-      0;
-
-    // Preserve any future extra keys on pos while enforcing x/y/z
-    return {
-      ...ex,
-      ...patchPos,
-      x: px,
-      y: py,
-      z,
-    };
-  }
-
   async function ensureCreatedAtTx(tx, ref) {
     const snap = await tx.get(ref);
-
     if (!snap.exists) {
       tx.set(ref, { createdAt: serverTs() }, { merge: true });
-      return { exists: false, data: {} };
+      return;
     }
-
     const data = snap.data() || {};
     if (data.createdAt == null) {
       tx.set(ref, { createdAt: serverTs() }, { merge: true });
     }
-
-    return { exists: true, data };
   }
 
-  /** Move a player by (dx, dy) and stamp updatedAt. (Legacy helper; keep z intact.) */
+  /** Move a player by (dx, dy) and stamp updatedAt. Preserves z. */
   async function movePlayer(gameId, uid, dx, dy) {
     const ref = state.playersCol(gameId).doc(uid);
 
     await db.runTransaction(async (tx) => {
-      const curSnap = await ensureCreatedAtTx(tx, ref);
-      const cur = curSnap.data || {};
+      await ensureCreatedAtTx(tx, ref);
 
-      const pos = (cur.pos && typeof cur.pos === 'object') ? cur.pos : { x: 0, y: 0, z: 0 };
-      const newX = toInt(pos.x, 0) + toInt(dx, 0);
-      const newY = toInt(pos.y, 0) + toInt(dy, 0);
+      const snap = await tx.get(ref);
+      const cur = snap.exists ? (snap.data() || {}) : {};
 
-      const nextPos = normalizePos(pos, { x: newX, y: newY });
+      const pos = cur.pos || { x: 0, y: 0, z: 0 };
+      const curZ = Number.isFinite(pos.z) ? Number(pos.z) : 0;
+
+      const newX = (pos.x ?? 0) + Number(dx);
+      const newY = (pos.y ?? 0) + Number(dy);
 
       tx.set(
         ref,
         {
-          pos: nextPos,
+          pos: { x: newX, y: newY, z: curZ },
           updatedAt: serverTs(),
         },
         { merge: true }
@@ -83,105 +52,86 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a player doc. (Preserve pos.z on partial pos patches.) */
+  /** Generic helper: merge data into a player doc. */
   async function updatePlayer(gameId, uid, data) {
     const ref = state.playersCol(gameId).doc(uid);
-
     await db.runTransaction(async (tx) => {
-      const curSnap = await ensureCreatedAtTx(tx, ref);
-      const cur = curSnap.data || {};
-
-      const patch = { ...data };
-
-      if (Object.prototype.hasOwnProperty.call(data || {}, 'pos')) {
-        patch.pos = normalizePos(cur.pos, data.pos);
-      }
-
+      await ensureCreatedAtTx(tx, ref);
       tx.set(
         ref,
         {
-          ...patch,
+          ...data,
           updatedAt: serverTs(),
         },
         { merge: true }
       );
     });
-
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a zombie doc. (Preserve pos.z on partial pos patches.) */
+  /** Generic helper: merge data into a zombie doc. */
   async function updateZombie(gameId, zombieId, data) {
     const ref = state.zombiesCol(gameId).doc(zombieId);
-
     await db.runTransaction(async (tx) => {
-      const curSnap = await ensureCreatedAtTx(tx, ref);
-      const cur = curSnap.data || {};
-
-      const patch = { ...data };
-
-      if (Object.prototype.hasOwnProperty.call(data || {}, 'pos')) {
-        patch.pos = normalizePos(cur.pos, data.pos);
-      }
-
+      await ensureCreatedAtTx(tx, ref);
       tx.set(
         ref,
         {
-          ...patch,
+          ...data,
           updatedAt: serverTs(),
         },
         { merge: true }
       );
     });
-
     return { ok: true };
   }
 
   /** Generic helper: merge data into a human actor doc (humans collection). */
   async function updateHuman(gameId, humanId, data) {
     const ref = state.humansCol(gameId).doc(humanId);
-
     await db.runTransaction(async (tx) => {
-      const curSnap = await ensureCreatedAtTx(tx, ref);
-      const cur = curSnap.data || {};
-
-      const patch = { ...data };
-
-      if (Object.prototype.hasOwnProperty.call(data || {}, 'pos')) {
-        patch.pos = normalizePos(cur.pos, data.pos);
-      }
-
+      await ensureCreatedAtTx(tx, ref);
       tx.set(
         ref,
         {
-          ...patch,
+          ...data,
           updatedAt: serverTs(),
         },
         { merge: true }
       );
     });
-
     return { ok: true };
   }
 
   /** Generic helper: merge data into an item doc. */
   async function updateItem(gameId, itemId, data) {
     const ref = state.itemsCol(gameId).doc(itemId);
-
     await db.runTransaction(async (tx) => {
-      const curSnap = await ensureCreatedAtTx(tx, ref);
-      const cur = curSnap.data || {};
-
-      const patch = { ...data };
-
-      if (Object.prototype.hasOwnProperty.call(data || {}, 'pos')) {
-        patch.pos = normalizePos(cur.pos, data.pos);
-      }
-
+      await ensureCreatedAtTx(tx, ref);
       tx.set(
         ref,
         {
-          ...patch,
+          ...data,
+          updatedAt: serverTs(),
+        },
+        { merge: true }
+      );
+    });
+    return { ok: true };
+  }
+
+  /** Merge data into a door doc: games/{gameId}/doors/{doorId}. */
+  async function updateDoor(gameId, doorId, data) {
+    if (typeof state.doorsCol !== 'function') throw new Error('updateDoor: doorsCol not available');
+    const ref = state.doorsCol(gameId).doc(doorId);
+
+    await db.runTransaction(async (tx) => {
+      await ensureCreatedAtTx(tx, ref);
+      tx.set(
+        ref,
+        {
+          doorId,
+          ...data,
           updatedAt: serverTs(),
         },
         { merge: true }
@@ -274,7 +224,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
   /** Merge game-level metadata into games/{gameId}. */
   async function writeGameMeta(gameId, newMeta) {
     const ref = state.gameRef(gameId);
-
     await db.runTransaction(async (tx) => {
       await ensureCreatedAtTx(tx, ref);
       tx.set(
@@ -286,7 +235,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
         { merge: true }
       );
     });
-
     return { ok: true };
   }
 
@@ -296,6 +244,7 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     updateZombie,
     updateHuman,
     updateItem,
+    updateDoor,
     searchSpot,
     writeGameMeta,
   };
