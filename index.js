@@ -4,16 +4,14 @@ const functions  = require('@google-cloud/functions-framework');
 const express    = require('express');
 const admin      = require('firebase-admin');
 
-const makeState       = require('./ld2030/v1/state');
-const makeGameEngine  = require('./ld2030/v1/engine');
+const makeState      = require('./ld2030/v1/state');
+const makeGameEngine = require('./ld2030/v1/engine');
 
-const registerInitGame    = require('./ld2030/v1/init-game');
-const registerJoinGame    = require('./ld2030/v1/join-game');
-const registerMovePlayer  = require('./ld2030/v1/actions/move-player');
-const registerAttackEntity = require('./ld2030/v1/actions/attack-entity');
-const registerEquipItem   = require('./ld2030/v1/actions/equip-item');
-const registerUnequipItem = require('./ld2030/v1/actions/unequip-item');
-const registerSearch      = require('./ld2030/v1/actions/search');
+const registerInitGame = require('./ld2030/v1/init-game');
+const registerJoinGame = require('./ld2030/v1/join-game');
+
+// ✅ Single action registrar (move/attack/equip/search/enter/stairs/climb)
+const registerActions = require('./ld2030/v1/actions');
 
 // ---------------------------------------------
 // Firebase setup
@@ -49,13 +47,8 @@ registerInitGame(app, ctx);
 // Player join / spawn
 registerJoinGame(app, ctx);
 
-// Actions (movement & combat) via engine/router
-registerMovePlayer(app, { engine: gameEngine, base: BASE });
-registerAttackEntity(app, { engine: gameEngine, base: BASE });
-registerEquipItem(app, { engine: gameEngine, base: BASE });
-registerUnequipItem(app, { engine: gameEngine, base: BASE });
-
-registerSearch(app, { engine: gameEngine, base: BASE });
+// ✅ All action endpoints in one place
+registerActions(app, { engine: gameEngine, base: BASE });
 
 // Tick endpoint (players + zombies)
 app.post(`${BASE}/tick-game`, async (req, res) => {
@@ -68,8 +61,6 @@ app.post(`${BASE}/tick-game`, async (req, res) => {
     return res.status(500).json({ ok: false, error: 'tick_failed' });
   }
 });
-
-
 
 // ---------------------------------------------
 // Export cloud function

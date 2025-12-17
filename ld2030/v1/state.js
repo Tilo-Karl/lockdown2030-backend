@@ -14,7 +14,7 @@ module.exports = function makeState(db, admin) {
   // NEW: per-tile/per-floor search state (shared world)
   const spotsCol   = (gameId) => gameRef(gameId).collection('spots');
 
-  // NEW: per-building-tile door state
+  // NEW: doors per building tile
   const doorsCol   = (gameId) => gameRef(gameId).collection('doors');
 
   // Spawn writer uses the same collections
@@ -122,7 +122,7 @@ module.exports = function makeState(db, admin) {
     humansCol,
     itemsCol,
     spotsCol,
-    doorsCol,
+    doorsCol, // ✅
     writeMapAndGame,
     readGridSize,
   };

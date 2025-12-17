@@ -12,6 +12,15 @@ function makeEngine({ reader, writer }) {
 
   const equipmentService = makeEquipmentService({ reader, writer });
 
+  // ---------------------------------------------------------------------------
+  // Doors (Quarantine model)
+  // - Door doc id is per building tile: d_{x}_{y}
+  // - Players are not blocked by closed doors
+  // - Entering from outside is blocked if secured/barricaded (unless broken)
+  // - Repair makes door repaired-but-open
+  // - Secure/Barricade/Debarricade/Repair are INSIDE-only
+  // ---------------------------------------------------------------------------
+
   function doorIdForTile(x, y) {
     return `d_${x}_${y}`;
   }
@@ -29,6 +38,67 @@ function makeEngine({ reader, writer }) {
     };
   }
 
+  const DOOR = {
+    SECURE_AP: 1,
+    BARRICADE_AP: 1,
+    DEBARRICADE_AP: 1,
+    REPAIR_AP: 2,
+
+    MAX_BARRICADE: 5,
+
+    // future-facing (for zombie breaking); stable now
+    BASE_HP: 10,
+    SECURE_HP_BONUS: 5,
+    HP_PER_BARRICADE: 10,
+  };
+
+  function computeDoorHp({ isSecured, barricadeLevel, broken }) {
+    if (broken === true) return 0;
+    const lvl = Number.isFinite(barricadeLevel) ? Number(barricadeLevel) : 0;
+    const secure = isSecured === true ? DOOR.SECURE_HP_BONUS : 0;
+    return DOOR.BASE_HP + secure + (Math.max(0, lvl) * DOOR.HP_PER_BARRICADE);
+  }
+
+  async function loadDoorOrDefault({ gameId, x, y }) {
+    const doorId = doorIdForTile(x, y);
+    const door =
+      typeof reader.getDoor === 'function' ? await reader.getDoor(gameId, doorId) : null;
+    const d = door ? { ...doorDefaults(x, y), ...door } : doorDefaults(x, y);
+    return { doorId, d };
+  }
+
+  async function requireInsideOnBuildingTile({ gameId, game, actor }) {
+    if (actor.isInsideBuilding !== true) throw new Error('DOOR: must_be_inside_building');
+
+    const pos = actor.pos || { x: 0, y: 0, z: 0 };
+    const x = Number(pos.x);
+    const y = Number(pos.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('DOOR: invalid_pos');
+
+    const mapMeta = game?.mapMeta || {};
+    const { byXY } = getBuildingIndex(game, mapMeta);
+    const buildingId = byXY.get(`${x},${y}`) || null;
+    if (!buildingId) throw new Error('DOOR: not_on_building_tile');
+
+    return { x, y, byXY };
+  }
+
+  async function spendApOrThrow({ gameId, uid, actor, apCost, tag }) {
+    // Only player actors spend AP
+    if (actor.isPlayer !== true) {
+      const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
+      return curAp;
+    }
+
+    const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
+    if (curAp < apCost) throw new Error(`${tag}: not_enough_ap`);
+    const nextAp = Math.max(0, curAp - apCost);
+
+    await writer.updatePlayer(gameId, uid, { currentAp: nextAp });
+
+    return nextAp;
+  }
+
   async function processAction(action) {
     switch (action.type) {
       case 'MOVE':
@@ -43,6 +113,16 @@ function makeEngine({ reader, writer }) {
         return handleClimbIn(action);
       case 'CLIMB_OUT':
         return handleClimbOut(action);
+
+      case 'SECURE_DOOR':
+        return handleSecureDoor(action);
+      case 'BARRICADE_DOOR':
+        return handleBarricadeDoor(action);
+      case 'DEBARRICADE_DOOR':
+        return handleDebarricadeDoor(action);
+      case 'REPAIR_DOOR':
+        return handleRepairDoor(action);
+
       case 'ATTACK_ENTITY':
         return handleAttackEntity(action);
       case 'EQUIP_ITEM':
@@ -92,10 +172,14 @@ function makeEngine({ reader, writer }) {
         if (Number.isFinite(fx) && Number.isFinite(fy)) {
           const buildingId = byXY.get(`${fx},${fy}`) || null;
           if (buildingId) {
+            // Quarantine rule: exiting collapses the "secured" chair state.
             await writer.updateDoor(gameId, doorIdForTile(fx, fy), {
+              doorId: doorIdForTile(fx, fy),
               x: fx,
               y: fy,
               isSecured: false,
+              // keep it closed (door can’t be secured if open; exiting just removes the chair)
+              isOpen: false,
             });
           }
         }
@@ -118,7 +202,14 @@ function makeEngine({ reader, writer }) {
       isInsideBuilding: nextInside,
     });
 
-    return { ok: true, gameId, uid, pos: nextPos, isInsideBuilding: nextInside, apCost: plan.apCost };
+    return {
+      ok: true,
+      gameId,
+      uid,
+      pos: nextPos,
+      isInsideBuilding: nextInside,
+      apCost: plan.apCost,
+    };
   }
 
   async function handleEnterBuilding({ gameId = 'lockdown2030', uid }) {
@@ -148,12 +239,7 @@ function makeEngine({ reader, writer }) {
     if (!buildingId) throw new Error('ENTER_BUILDING: must_be_on_building_tile');
 
     // Door gate (Quarantine model): secured/barricaded blocks entering from outside.
-    const doorId = doorIdForTile(x, y);
-    const door = (typeof reader.getDoor === 'function')
-      ? (await reader.getDoor(gameId, doorId))
-      : null;
-
-    const d = door ? { ...doorDefaults(x, y), ...door } : doorDefaults(x, y);
+    const { d } = await loadDoorOrDefault({ gameId, x, y });
 
     // broken doors are effectively open: allow enter
     const barricadeLevel = Number.isFinite(d.barricadeLevel) ? Number(d.barricadeLevel) : 0;
@@ -162,13 +248,13 @@ function makeEngine({ reader, writer }) {
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
-    if (curAp < apCost) throw new Error('ENTER_BUILDING: not_enough_ap');
-    const nextAp = Math.max(0, curAp - apCost);
+    if (actor.isPlayer === true && curAp < apCost) throw new Error('ENTER_BUILDING: not_enough_ap');
+    const nextAp = actor.isPlayer === true ? Math.max(0, curAp - apCost) : curAp;
 
     await writer.updatePlayer(gameId, uid, {
       pos: { x, y, z: 0 },
       isInsideBuilding: true,
-      currentAp: nextAp,
+      ...(actor.isPlayer === true ? { currentAp: nextAp } : {}),
     });
 
     return { ok: true, gameId, uid, pos: { x, y, z: 0 }, isInsideBuilding: true, apCost, currentAp: nextAp };
@@ -192,7 +278,7 @@ function makeEngine({ reader, writer }) {
 
     const pos = actor.pos || { x: 0, y: 0, z: 0 };
     const x = Number(pos.x);
-    const y = Number(pos.y);
+    const y = Number(pos.y); // ✅ fixed
     const z = Number.isFinite(pos.z) ? Number(pos.z) : 0;
     if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error('STAIRS: invalid_pos');
 
@@ -211,13 +297,13 @@ function makeEngine({ reader, writer }) {
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
-    if (curAp < apCost) throw new Error('STAIRS: not_enough_ap');
-    const nextAp = Math.max(0, curAp - apCost);
+    if (actor.isPlayer === true && curAp < apCost) throw new Error('STAIRS: not_enough_ap');
+    const nextAp = actor.isPlayer === true ? Math.max(0, curAp - apCost) : curAp;
 
     await writer.updatePlayer(gameId, uid, {
       pos: { x, y, z: nextZ },
       isInsideBuilding: true,
-      currentAp: nextAp,
+      ...(actor.isPlayer === true ? { currentAp: nextAp } : {}),
     });
 
     return { ok: true, gameId, uid, pos: { x, y, z: nextZ }, isInsideBuilding: true, apCost, currentAp: nextAp };
@@ -248,13 +334,13 @@ function makeEngine({ reader, writer }) {
 
     const apCost = 2;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
-    if (curAp < apCost) throw new Error('CLIMB_IN: not_enough_ap');
-    const nextAp = Math.max(0, curAp - apCost);
+    if (actor.isPlayer === true && curAp < apCost) throw new Error('CLIMB_IN: not_enough_ap');
+    const nextAp = actor.isPlayer === true ? Math.max(0, curAp - apCost) : curAp;
 
     await writer.updatePlayer(gameId, uid, {
       pos: { x, y, z: 0 },
       isInsideBuilding: true,
-      currentAp: nextAp,
+      ...(actor.isPlayer === true ? { currentAp: nextAp } : {}),
     });
 
     return { ok: true, gameId, uid, pos: { x, y, z: 0 }, isInsideBuilding: true, apCost, currentAp: nextAp };
@@ -278,17 +364,160 @@ function makeEngine({ reader, writer }) {
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
-    if (curAp < apCost) throw new Error('CLIMB_OUT: not_enough_ap');
-    const nextAp = Math.max(0, curAp - apCost);
+    if (actor.isPlayer === true && curAp < apCost) throw new Error('CLIMB_OUT: not_enough_ap');
+    const nextAp = actor.isPlayer === true ? Math.max(0, curAp - apCost) : curAp;
 
-    // Outside is always z=0
     await writer.updatePlayer(gameId, uid, {
       pos: { x, y, z: 0 },
       isInsideBuilding: false,
-      currentAp: nextAp,
+      ...(actor.isPlayer === true ? { currentAp: nextAp } : {}),
     });
 
     return { ok: true, gameId, uid, pos: { x, y, z: 0 }, isInsideBuilding: false, apCost, currentAp: nextAp };
+  }
+
+  // ---------------------------------------------------------------------------
+  // Door actions (players can play the quarantine loop now)
+  // ---------------------------------------------------------------------------
+
+  async function handleSecureDoor({ gameId = 'lockdown2030', uid }) {
+    if (!uid) throw new Error('SECURE_DOOR: uid is required');
+
+    const game = await reader.getGame(gameId);
+    if (!game) throw new Error('SECURE_DOOR: game_not_found');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    if (!actor) throw new Error('SECURE_DOOR: actor_not_found');
+
+    const { x, y } = await requireInsideOnBuildingTile({ gameId, game, actor });
+    const { doorId, d } = await loadDoorOrDefault({ gameId, x, y });
+
+    if (d.broken === true) throw new Error('SECURE_DOOR: door_broken');
+
+    const apCost = DOOR.SECURE_AP;
+    const currentAp = await spendApOrThrow({ gameId, uid, actor, apCost, tag: 'SECURE_DOOR' });
+
+    const next = {
+      doorId,
+      x,
+      y,
+      isOpen: false,         // securing implies closed
+      isSecured: true,
+      broken: false,
+      barricadeLevel: Math.max(0, Number.isFinite(d.barricadeLevel) ? Number(d.barricadeLevel) : 0),
+    };
+    next.hp = computeDoorHp(next);
+
+    await writer.updateDoor(gameId, doorId, next);
+
+    return { ok: true, gameId, uid, ...next, apCost, currentAp };
+  }
+
+  async function handleBarricadeDoor({ gameId = 'lockdown2030', uid }) {
+    if (!uid) throw new Error('BARRICADE_DOOR: uid is required');
+
+    const game = await reader.getGame(gameId);
+    if (!game) throw new Error('BARRICADE_DOOR: game_not_found');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    if (!actor) throw new Error('BARRICADE_DOOR: actor_not_found');
+
+    const { x, y } = await requireInsideOnBuildingTile({ gameId, game, actor });
+    const { doorId, d } = await loadDoorOrDefault({ gameId, x, y });
+
+    if (d.broken === true) throw new Error('BARRICADE_DOOR: door_broken');
+
+    const curLevel = Number.isFinite(d.barricadeLevel) ? Number(d.barricadeLevel) : 0;
+    if (curLevel >= DOOR.MAX_BARRICADE) throw new Error('BARRICADE_DOOR: max_level');
+
+    const apCost = DOOR.BARRICADE_AP;
+    const currentAp = await spendApOrThrow({ gameId, uid, actor, apCost, tag: 'BARRICADE_DOOR' });
+
+    const next = {
+      doorId,
+      x,
+      y,
+      isOpen: false,
+      isSecured: true,        // barricade implies secured
+      broken: false,
+      barricadeLevel: curLevel + 1,
+    };
+    next.hp = computeDoorHp(next);
+
+    await writer.updateDoor(gameId, doorId, next);
+
+    return { ok: true, gameId, uid, ...next, apCost, currentAp };
+  }
+
+  async function handleDebarricadeDoor({ gameId = 'lockdown2030', uid }) {
+    if (!uid) throw new Error('DEBARRICADE_DOOR: uid is required');
+
+    const game = await reader.getGame(gameId);
+    if (!game) throw new Error('DEBARRICADE_DOOR: game_not_found');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    if (!actor) throw new Error('DEBARRICADE_DOOR: actor_not_found');
+
+    const { x, y } = await requireInsideOnBuildingTile({ gameId, game, actor });
+    const { doorId, d } = await loadDoorOrDefault({ gameId, x, y });
+
+    if (d.broken === true) throw new Error('DEBARRICADE_DOOR: door_broken');
+
+    const curLevel = Number.isFinite(d.barricadeLevel) ? Number(d.barricadeLevel) : 0;
+    if (curLevel <= 0) throw new Error('DEBARRICADE_DOOR: nothing_to_remove');
+
+    const apCost = DOOR.DEBARRICADE_AP;
+    const currentAp = await spendApOrThrow({ gameId, uid, actor, apCost, tag: 'DEBARRICADE_DOOR' });
+
+    const nextLevel = Math.max(0, curLevel - 1);
+
+    const next = {
+      doorId,
+      x,
+      y,
+      isOpen: false,
+      broken: false,
+      barricadeLevel: nextLevel,
+      // Quarantine: removing barricades leaves the "secured chair" stage in place.
+      isSecured: true,
+    };
+    next.hp = computeDoorHp(next);
+
+    await writer.updateDoor(gameId, doorId, next);
+
+    return { ok: true, gameId, uid, ...next, apCost, currentAp };
+  }
+
+  async function handleRepairDoor({ gameId = 'lockdown2030', uid }) {
+    if (!uid) throw new Error('REPAIR_DOOR: uid is required');
+
+    const game = await reader.getGame(gameId);
+    if (!game) throw new Error('REPAIR_DOOR: game_not_found');
+
+    const actor = await reader.getPlayer(gameId, uid);
+    if (!actor) throw new Error('REPAIR_DOOR: actor_not_found');
+
+    const { x, y } = await requireInsideOnBuildingTile({ gameId, game, actor });
+    const doorId = doorIdForTile(x, y);
+
+    const apCost = DOOR.REPAIR_AP;
+    const currentAp = await spendApOrThrow({ gameId, uid, actor, apCost, tag: 'REPAIR_DOOR' });
+
+    // Your rule: repaired doors start OPEN.
+    const next = {
+      doorId,
+      x,
+      y,
+      broken: false,
+      isOpen: true,
+      isSecured: false,
+      barricadeLevel: 0,
+    };
+    next.hp = computeDoorHp(next);
+
+    await writer.updateDoor(gameId, doorId, next);
+
+    return { ok: true, gameId, uid, ...next, apCost, currentAp };
   }
 
   async function handleSearch({ gameId = 'lockdown2030', uid }) {
@@ -310,7 +539,7 @@ function makeEngine({ reader, writer }) {
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
-    if (curAp < apCost) throw new Error('SEARCH: not_enough_ap');
+    if (actor.isPlayer === true && curAp < apCost) throw new Error('SEARCH: not_enough_ap');
 
     const spotId = `i_${x}_${y}_${z}`;
 

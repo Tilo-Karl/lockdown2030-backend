@@ -54,6 +54,26 @@ function makeActionRouter({ engine }) {
     return engine.processAction({ type: 'CLIMB_OUT', uid, gameId });
   }
 
+  async function handleSecureDoor({ uid, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('SECURE_DOOR: missing_uid');
+    return engine.processAction({ type: 'SECURE_DOOR', uid, gameId });
+  }
+
+  async function handleBarricadeDoor({ uid, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('BARRICADE_DOOR: missing_uid');
+    return engine.processAction({ type: 'BARRICADE_DOOR', uid, gameId });
+  }
+
+  async function handleDebarricadeDoor({ uid, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('DEBARRICADE_DOOR: missing_uid');
+    return engine.processAction({ type: 'DEBARRICADE_DOOR', uid, gameId });
+  }
+
+  async function handleRepairDoor({ uid, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('REPAIR_DOOR: missing_uid');
+    return engine.processAction({ type: 'REPAIR_DOOR', uid, gameId });
+  }
+
   return {
     handleMove,
     handleAttackEntity,
@@ -64,6 +84,10 @@ function makeActionRouter({ engine }) {
     handleStairs,
     handleClimbIn,
     handleClimbOut,
+    handleSecureDoor,
+    handleBarricadeDoor,
+    handleDebarricadeDoor,
+    handleRepairDoor,
   };
 }
 

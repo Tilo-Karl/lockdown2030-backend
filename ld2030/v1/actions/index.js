@@ -1,15 +1,21 @@
 // ld2030/v1/actions/index.js
-// One place to register all action endpoints (move/attack/equip/search/enter/stairs/climb).
+// One place to register all action endpoints (move/attack/equip/search/enter/stairs/climb/doors).
 
-const registerMovePlayer = require('./move-player');
-const registerAttackEntity = require('./attack-entity');
-const registerEquipItem = require('./equip-item');
-const registerUnequipItem = require('./unequip-item');
-const registerSearch = require('./search');
+const registerMovePlayer    = require('./move-player');
+const registerAttackEntity  = require('./attack-entity');
+const registerEquipItem     = require('./equip-item');
+const registerUnequipItem   = require('./unequip-item');
+const registerSearch        = require('./search');
+
 const registerEnterBuilding = require('./enter-building');
-const registerStairs = require('./stairs');
-const registerClimbIn = require('./climb-in');
-const registerClimbOut = require('./climb-out');
+const registerStairs        = require('./stairs');
+const registerClimbIn       = require('./climb-in');
+const registerClimbOut      = require('./climb-out');
+
+const registerSecureDoor       = require('./secure-door');
+const registerBarricadeDoor    = require('./barricade-door');
+const registerDebarricadeDoor  = require('./debarricade-door');
+const registerRepairDoor       = require('./repair-door');
 
 module.exports = function registerActions(app, { engine, base }) {
   if (!app) throw new Error('registerActions: app is required');
@@ -29,4 +35,10 @@ module.exports = function registerActions(app, { engine, base }) {
 
   registerClimbIn(app, { engine, base });
   registerClimbOut(app, { engine, base });
+
+  // Doors
+  registerSecureDoor(app, { engine, base });
+  registerBarricadeDoor(app, { engine, base });
+  registerDebarricadeDoor(app, { engine, base });
+  registerRepairDoor(app, { engine, base });
 };

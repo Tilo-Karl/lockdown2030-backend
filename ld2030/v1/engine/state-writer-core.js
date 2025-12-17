@@ -1,5 +1,5 @@
 // ld2030/v1/engine/state-writer-core.js
-// Core writes: move, generic updates, game meta.
+// Core writes: move, generic updates, game meta, doors.
 // Improvement:
 // - Always stamp updatedAt.
 // - Ensure createdAt exists (set once if missing) for all entity doc writes.
@@ -23,7 +23,7 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     }
   }
 
-  /** Move a player by (dx, dy) and stamp updatedAt. Preserves z. */
+  /** Move a player by (dx, dy) and stamp updatedAt. */
   async function movePlayer(gameId, uid, dx, dy) {
     const ref = state.playersCol(gameId).doc(uid);
 
@@ -33,16 +33,14 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
       const snap = await tx.get(ref);
       const cur = snap.exists ? (snap.data() || {}) : {};
 
-      const pos = cur.pos || { x: 0, y: 0, z: 0 };
-      const curZ = Number.isFinite(pos.z) ? Number(pos.z) : 0;
-
+      const pos = cur.pos || { x: 0, y: 0 };
       const newX = (pos.x ?? 0) + Number(dx);
       const newY = (pos.y ?? 0) + Number(dy);
 
       tx.set(
         ref,
         {
-          pos: { x: newX, y: newY, z: curZ },
+          pos: { x: newX, y: newY },
           updatedAt: serverTs(),
         },
         { merge: true }
@@ -120,11 +118,10 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Merge data into a door doc: games/{gameId}/doors/{doorId}. */
+  /** Generic helper: merge data into a door doc (doors collection). */
   async function updateDoor(gameId, doorId, data) {
-    if (typeof state.doorsCol !== 'function') throw new Error('updateDoor: doorsCol not available');
+    if (!state.doorsCol) throw new Error('updateDoor: state.doorsCol is required');
     const ref = state.doorsCol(gameId).doc(doorId);
-
     await db.runTransaction(async (tx) => {
       await ensureCreatedAtTx(tx, ref);
       tx.set(
@@ -137,7 +134,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
         { merge: true }
       );
     });
-
     return { ok: true };
   }
 
@@ -244,7 +240,7 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     updateZombie,
     updateHuman,
     updateItem,
-    updateDoor,
+    updateDoor, // ✅
     searchSpot,
     writeGameMeta,
   };
