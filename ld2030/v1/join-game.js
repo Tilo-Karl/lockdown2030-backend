@@ -33,9 +33,9 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
         .limit(1);
 
       const snap = await tx.get(q);
-      if (snap.empty) return { x, y };
+      if (snap.empty) return { x, y, z: 0 };
     }
-    return { x: 0, y: 0 }; // fallback
+    return { x: 0, y: 0, z: 0 }; // fallback
   }
 
   app.post(`${BASE}/join-game`, async (req, res) => {
@@ -76,6 +76,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
             const clampedPos = {
               x: Math.min(Math.max(p.pos.x, 0), w - 1),
               y: Math.min(Math.max(p.pos.y, 0), h - 1),
+              z: Number.isFinite(p.pos?.z) ? Math.max(0, Math.trunc(p.pos.z)) : 0,
             };
 
             // Ensure createdAt exists, and enforce player actor discriminators + caps.
@@ -87,6 +88,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
               isPlayer: true,
               alive: true,
               pos: clampedPos,
+              isInsideBuilding: p.isInsideBuilding === true ? true : false,
               maxHp,
               maxAp,
               // Don’t invent values if they already exist; only initialize if missing.
@@ -102,6 +104,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
             return {
               x: clampedPos.x,
               y: clampedPos.y,
+              z: clampedPos.z,
               maxHp,
               maxAp,
               currentHp: patch.currentHp,
@@ -116,7 +119,8 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
         const payload = {
           userId: uid,
           displayName: displayName ?? 'Player',
-          pos: spawn,
+          pos: { x: spawn.x, y: spawn.y, z: 0 },
+          isInsideBuilding: false,
 
           // Canonical actor discriminators
           type: 'HUMAN',
@@ -142,8 +146,9 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
         tx.set(logRef, { lastJoinAt: serverTs(admin) }, { merge: true });
 
         return {
-          x: spawn.x,
-          y: spawn.y,
+          x: payload.pos.x,
+          y: payload.pos.y,
+          z: payload.pos.z,
           maxHp,
           maxAp,
           currentHp: maxHp,

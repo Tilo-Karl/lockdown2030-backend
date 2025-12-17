@@ -47,11 +47,50 @@ function makeActionRouter({ engine }) {
     });
   }
 
+  async function handleSearch({ uid, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('SEARCH: missing_uid');
+
+    return engine.processAction({
+      type: 'SEARCH',
+      uid,
+      gameId,
+    });
+  }
+
+  async function handleEnterBuilding({ uid, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('ENTER_BUILDING: missing_uid');
+
+    return engine.processAction({
+      type: 'ENTER_BUILDING',
+      uid,
+      gameId,
+    });
+  }
+
+  async function handleStairs({ uid, dz, gameId = 'lockdown2030' }) {
+    if (!uid) throw new Error('STAIRS: missing_uid');
+
+    const step = Number(dz);
+    if (!Number.isFinite(step) || (step !== 1 && step !== -1)) {
+      throw new Error('STAIRS: dz_must_be_plus_or_minus_1');
+    }
+
+    return engine.processAction({
+      type: 'STAIRS',
+      uid,
+      gameId,
+      dz: step,
+    });
+  }
+
   return {
     handleMove,
     handleAttackEntity,
     handleEquipItem,
     handleUnequipItem,
+    handleSearch,
+    handleEnterBuilding,
+    handleStairs,
   };
 }
 

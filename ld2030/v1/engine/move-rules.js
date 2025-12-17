@@ -41,7 +41,7 @@ function getTileMeta(tileMeta, ch) {
  * Rule: encumbered actors cannot enter WATER.
  * (Water is otherwise allowed right now.)
  */
-function canEnterTile({ actor, toChar, toMeta }) {
+function canEnterTile({ actor, toChar }) {
   if (!actor) return { ok: false, reason: 'missing_actor' };
   if (!toChar) return { ok: false, reason: 'missing_tile' };
 
@@ -49,8 +49,6 @@ function canEnterTile({ actor, toChar, toMeta }) {
     return { ok: false, reason: 'encumbered_cannot_enter_water' };
   }
 
-  // Nothing else blocks movement yet.
-  // (Do NOT enforce toMeta.blocksMovement today—water is “swimmable”.)
   return { ok: true };
 }
 
@@ -69,15 +67,23 @@ function computeMoveApCost({ actor, toMeta }) {
   const tileMove = Number.isFinite(toMeta?.moveCost) ? toMeta.moveCost : 1;
   const tilePenalty = Math.max(0, tileMove - 1);
 
-  const cost = Math.max(0, base + enc + tilePenalty);
-  return cost;
+  return Math.max(0, base + enc + tilePenalty);
 }
 
 /**
- * Convenience: given game + actor + deltas, produce the move plan or a reason.
- * Engine should call this before writing.
+ * planMove returns authoritative:
+ * - to: {x,y,z}  (always includes z)
+ * - isInsideBuilding: boolean (always set)
+ *
+ * Rules:
+ * - Outside movement always stays outside (ENTER is explicit action)
+ * - If inside, you may move only within the SAME building footprint at same z
+ * - If inside and you step outside the footprint -> implicit EXIT: isInside=false, z=0
+ *
+ * Caller provides building footprint lookup:
+ * - byXY: Map("x,y" -> buildingId)
  */
-function planMove({ game, actor, dx, dy }) {
+function planMove({ game, actor, dx, dy, byXY }) {
   if (!game) throw new Error('missing_game');
   if (!actor) throw new Error('missing_actor');
 
@@ -94,27 +100,58 @@ function planMove({ game, actor, dx, dy }) {
 
   const tileMeta = mapMeta?.tileMeta || {};
 
-  const pos = actor?.pos || { x: 0, y: 0 };
+  const pos = actor?.pos || { x: 0, y: 0, z: 0 };
   const fromX = clampInt(pos.x ?? 0, 0, w - 1);
   const fromY = clampInt(pos.y ?? 0, 0, h - 1);
+  const fromZ = Number.isFinite(pos.z) ? clampInt(pos.z, -9999, 9999) : 0;
 
   const toX = clampInt(fromX + dx, 0, w - 1);
   const toY = clampInt(fromY + dy, 0, h - 1);
 
-  // No-op move still counts as invalid step earlier, so we’re safe.
-
   const toChar = getTileChar(terrain, toX, toY);
   const toMeta = getTileMeta(tileMeta, toChar);
 
-  const enter = canEnterTile({ actor, toChar, toMeta });
+  // ✅ FIX: call signature matches canEnterTile({ actor, toChar })
+  const enter = canEnterTile({ actor, toChar });
   if (!enter.ok) return { ok: false, reason: enter.reason };
+
+  const lookup = byXY instanceof Map ? byXY : new Map();
+
+  const fromInside = actor.isInsideBuilding === true;
+
+  const fromBuildingId = lookup.get(`${fromX},${fromY}`) || null;
+  const toBuildingId = lookup.get(`${toX},${toY}`) || null;
+
+  let nextInside = false;
+  let nextZ = 0;
+
+  if (fromInside) {
+    // If state says "inside" but you're not on a footprint, force you out safely.
+    if (!fromBuildingId) {
+      nextInside = false;
+      nextZ = 0;
+    } else if (toBuildingId === fromBuildingId) {
+      // Inside movement: same building only, keep z
+      nextInside = true;
+      nextZ = fromZ;
+    } else {
+      // Implicit EXIT (step out of footprint)
+      nextInside = false;
+      nextZ = 0;
+    }
+  } else {
+    // Outside stays outside, even if you step onto a footprint (ENTER is explicit)
+    nextInside = false;
+    nextZ = 0;
+  }
 
   const apCost = computeMoveApCost({ actor, toMeta });
 
   return {
     ok: true,
-    from: { x: fromX, y: fromY },
-    to: { x: toX, y: toY },
+    from: { x: fromX, y: fromY, z: fromZ },
+    to: { x: toX, y: toY, z: nextZ },
+    isInsideBuilding: nextInside,
     apCost,
     toTile: { ch: toChar, meta: toMeta },
   };

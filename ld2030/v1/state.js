@@ -11,6 +11,9 @@ module.exports = function makeState(db, admin) {
   const humansCol  = (gameId) => gameRef(gameId).collection('humans');
   const itemsCol   = (gameId) => gameRef(gameId).collection('items');
 
+  // NEW: per-tile/per-floor search state (shared world)
+  const spotsCol   = (gameId) => gameRef(gameId).collection('spots');
+
   // Spawn writer uses the same collections
   const stateForSpawn = {
     gameRef,
@@ -21,17 +24,12 @@ module.exports = function makeState(db, admin) {
   };
   const spawnWriter = makeSpawnStateWriter({ db, admin, state: stateForSpawn });
 
-  /**
-   * Create/overwrite the map (only if missing or force=true) and stamp game meta.
-   * Also spawns zombies, humans and items using the spawn writer.
-   */
   async function writeMapAndGame({
     gameId,
     mapId,
     w,
     h,
     seed,
-    // _force is reserved for a future "force re-init" behavior and is currently unused.
     _force = false,
   }) {
     if (!gameId || !mapId) throw new Error('missing_ids');
@@ -42,7 +40,6 @@ module.exports = function makeState(db, admin) {
 
     const mapDoc = generateMap({ seed, w, h });
 
-    // Build a compact tile meta map for Firestore (label, color, movement flags, etc.)
     const tileMetaForFirestore = {};
     if (TILE_META && typeof TILE_META === 'object') {
       Object.entries(TILE_META).forEach(([code, meta]) => {
@@ -50,30 +47,20 @@ module.exports = function makeState(db, admin) {
         tileMetaForFirestore[code] = {
           label: meta.label || null,
           colorHex: meta.colorHex || null,
-          // Booleans default to false unless explicitly true
           blocksMovement: meta.blocksMovement === true,
           blocksVision: meta.blocksVision === true,
-          // Spawns default to allowed unless explicitly false
           playerSpawnAllowed: meta.playerSpawnAllowed !== false,
           zombieSpawnAllowed: meta.zombieSpawnAllowed !== false,
-          // Movement cost defaults to 1 if not set
           moveCost: Number.isFinite(meta.moveCost) ? meta.moveCost : 1,
         };
       });
     }
 
     const batch = db.batch();
-
-    // Always (re)stamp game metadata so you see a change
     const mapMeta = mapDoc ? mapDoc.meta : undefined;
 
-    // IMPORTANT: the spawner reads from the in-memory mapMeta argument we pass in.
-    // We inject tileMeta here so spawnAllForNewGame can use blocksMovement, etc.
     const mapMetaForSpawn = mapMeta
-      ? {
-          ...mapMeta,
-          tileMeta: tileMetaForFirestore,
-        }
+      ? { ...mapMeta, tileMeta: tileMetaForFirestore }
       : mapMeta;
 
     batch.set(
@@ -83,10 +70,8 @@ module.exports = function makeState(db, admin) {
         mapId,
         gridsize: { w, h },
         status: 'live',
-        // keep a round field present; increment(0) is a no-op write
         round: admin.firestore.FieldValue.increment(0) || 1,
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
-        // small, optional mirror of map meta (handy for clients)
         mapMeta: mapMeta
           ? {
               version: mapMeta.version,
@@ -94,12 +79,10 @@ module.exports = function makeState(db, admin) {
               center: mapMeta.center || null,
               terrain: mapMeta.terrain || null,
               terrainPalette: mapMeta.terrainPalette || null,
-              // Never write undefined into Firestore; use null if absent.
               passableChars: mapMeta.passableChars ?? null,
               params: mapMeta.params ?? null,
               buildings: mapMeta.buildings || [],
               buildingPalette: mapMeta.buildingPalette || null,
-              // ✅ THIS is what makes mapMeta.tileMeta exist for the spawner
               tileMeta: tileMetaForFirestore,
               cityName: mapMeta.cityName || null,
               districts: mapMeta.districts || null,
@@ -112,7 +95,6 @@ module.exports = function makeState(db, admin) {
 
     await batch.commit();
 
-    // --- Spawns (zombies + humans + items) now live in state-spawn.js ---
     await spawnAllForNewGame({
       gameId,
       mapMeta: mapMetaForSpawn,
@@ -120,9 +102,6 @@ module.exports = function makeState(db, admin) {
     });
   }
 
-  /**
-   * Tiny helper: read game grid size (w,h). Safe default if missing.
-   */
   async function readGridSize(gameId, fallback = { w: 32, h: 32 }) {
     const snap = await gameRef(gameId).get();
     if (!snap.exists) return fallback;
@@ -139,6 +118,7 @@ module.exports = function makeState(db, admin) {
     zombiesCol,
     humansCol,
     itemsCol,
+    spotsCol,
     writeMapAndGame,
     readGridSize,
   };

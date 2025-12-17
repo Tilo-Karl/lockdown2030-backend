@@ -9,8 +9,11 @@ const makeGameEngine  = require('./ld2030/v1/engine');
 
 const registerInitGame    = require('./ld2030/v1/init-game');
 const registerJoinGame    = require('./ld2030/v1/join-game');
-const registerMovePlayer  = require('./ld2030/v1/move-player');
-const registerAttackEntity = require('./ld2030/v1/attack-entity');
+const registerMovePlayer  = require('./ld2030/v1/actions/move-player');
+const registerAttackEntity = require('./ld2030/v1/actions/attack-entity');
+const registerEquipItem   = require('./ld2030/v1/actions/equip-item');
+const registerUnequipItem = require('./ld2030/v1/actions/unequip-item');
+const registerSearch      = require('./ld2030/v1/actions/search');
 
 // ---------------------------------------------
 // Firebase setup
@@ -49,6 +52,10 @@ registerJoinGame(app, ctx);
 // Actions (movement & combat) via engine/router
 registerMovePlayer(app, { engine: gameEngine, base: BASE });
 registerAttackEntity(app, { engine: gameEngine, base: BASE });
+registerEquipItem(app, { engine: gameEngine, base: BASE });
+registerUnequipItem(app, { engine: gameEngine, base: BASE });
+
+registerSearch(app, { engine: gameEngine, base: BASE });
 
 // Tick endpoint (players + zombies)
 app.post(`${BASE}/tick-game`, async (req, res) => {
@@ -61,6 +68,8 @@ app.post(`${BASE}/tick-game`, async (req, res) => {
     return res.status(500).json({ ok: false, error: 'tick_failed' });
   }
 });
+
+
 
 // ---------------------------------------------
 // Export cloud function

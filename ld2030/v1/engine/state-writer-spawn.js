@@ -84,7 +84,10 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('ZOMBIE', kindKey);
       if (!tmpl) return;
 
-      const doc = buildActorDocFromTemplate(tmpl, { pos: { x, y } });
+      const doc = buildActorDocFromTemplate(tmpl, {
+        pos: { x, y, z: 0 },
+        isInsideBuilding: false,
+      });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -120,7 +123,10 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('HUMAN', kindKey);
       if (!tmpl) return;
 
-      const doc = buildActorDocFromTemplate(tmpl, { pos: { x, y } });
+      const doc = buildActorDocFromTemplate(tmpl, {
+        pos: { x, y, z: 0 },
+        isInsideBuilding: false,
+      });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -156,7 +162,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('ITEM', kindKey);
       if (!tmpl) return;
 
-      const doc = buildItemDocFromTemplate(tmpl, { pos: { x, y } });
+      const doc = buildItemDocFromTemplate(tmpl, { pos: { x, y, z: 0 } });
 
       const ref = col.doc();
       batch.set(ref, doc);

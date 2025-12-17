@@ -18,6 +18,11 @@ module.exports = function makeStateReader({ db, state }) {
       return snap.exists ? snap.data() : null;
     },
 
+    async getSpot(gameId, spotId) {
+      const snap = await state.spotsCol(gameId).doc(spotId).get();
+      return snap.exists ? snap.data() : null;
+    },
+
     playersCol(gameId) {
       return state.playersCol(gameId);
     },
@@ -32,6 +37,10 @@ module.exports = function makeStateReader({ db, state }) {
 
     itemsCol(gameId) {
       return state.itemsCol(gameId);
+    },
+
+    spotsCol(gameId) {
+      return state.spotsCol(gameId);
     },
 
     gameRef(gameId) {

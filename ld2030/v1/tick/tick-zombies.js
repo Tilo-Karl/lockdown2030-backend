@@ -49,14 +49,15 @@ function makeZombieTicker({ reader, writer }) {
 
       const cfg = getEntityConfigOrThrow(key);
 
-      const x = z.pos.x;
-      const y = z.pos.y;
+      const x = Number(z.pos.x);
+      const y = Number(z.pos.y);
 
       const roam =
         Number.isFinite(cfg.maxRoamDistance) ? Number(cfg.maxRoamDistance) :
         Number.isFinite(roamDefault) ? roamDefault :
         1;
 
+      // 0 = no move, otherwise move 1..roam tiles in one cardinal direction
       const dirs = [
         { dx: 0, dy: 0 },
         { dx: 1, dy: 0 },
@@ -66,16 +67,20 @@ function makeZombieTicker({ reader, writer }) {
       ];
 
       const choice = dirs[Math.floor(Math.random() * dirs.length)];
-      let newX = x + Math.max(-roam, Math.min(choice.dx, roam));
-      let newY = y + Math.max(-roam, Math.min(choice.dy, roam));
+      const stepSize = (choice.dx === 0 && choice.dy === 0) ? 0 : Math.max(1, Math.floor(Math.random() * Math.max(1, roam)) + 1);
+
+      let newX = x + choice.dx * stepSize;
+      let newY = y + choice.dy * stepSize;
 
       newX = Math.max(0, Math.min(width - 1, newX));
       newY = Math.max(0, Math.min(height - 1, newY));
 
       if (newX !== x || newY !== y) moved += 1;
 
+      // Zombies are outside-only for now: always keep z=0 and isInsideBuilding=false
       await writer.updateZombie(gameId, doc.id, {
-        pos: { x: newX, y: newY },
+        pos: { x: newX, y: newY, z: 0 },
+        isInsideBuilding: false,
         updatedAt: now || new Date().toISOString(),
       });
     }

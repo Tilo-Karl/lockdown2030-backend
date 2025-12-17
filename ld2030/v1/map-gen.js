@@ -102,7 +102,10 @@ function generateMap({
 
   const hasSpecial = new Set();
   for (const b of buildings) {
-    hasSpecial.add(`${b.root.x},${b.root.y}`);
+    const footprint = Array.isArray(b.tiles) ? b.tiles : [];
+    for (const t of footprint) {
+      hasSpecial.add(`${t.x},${t.y}`);
+    }
   }
 
   for (const pos of buildTiles) {
@@ -116,11 +119,13 @@ function generateMap({
     const floors = 1 + Math.floor(rndForBuildings() * 6);
     const finalType = normalizeBuildingType(baseType, floors);
 
+    const tiles = [{ x: pos.x, y: pos.y }];
     buildings.push({
       id: `g_${key}`,
       type: finalType,
       root: { x: pos.x, y: pos.y },
-      tiles: 1,
+      tiles,
+      tileCount: tiles.length,
       floors,
     });
   }

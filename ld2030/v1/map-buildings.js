@@ -97,10 +97,16 @@ function extractBuildings(rows, w, h, BUILD_CH, rnd) {
       const type = normalizeBuildingType(baseType, floors);
 
       buildings.push({
-        id: `b${buildings.length}`,
+        id: `b${buildings.length}`,   // <- this IS your buildingId
         type,
         root,
-        tiles: tiles.length,
+
+        // Full footprint for movement/search rules
+        tiles,                        // [{x,y}, ...]
+
+        // Optional convenience
+        tileCount: tiles.length,
+
         floors,
       });
     }
