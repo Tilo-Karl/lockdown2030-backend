@@ -1,6 +1,6 @@
-// ld2030/v1/engine/state-reader.js
 // State reader used by engine + tick.
 // Adds door reads via state.doorsCol.
+// Adds stairs-edge reads via state.stairsCol.
 
 module.exports = function makeStateReader({ db, state }) {
   if (!db) throw new Error('state-reader: db is required');
@@ -25,6 +25,13 @@ module.exports = function makeStateReader({ db, state }) {
     return snap.exists ? (snap.data() || {}) : null;
   }
 
+  async function getStairEdge(gameId, edgeId) {
+    if (typeof state.stairsCol !== 'function') return null;
+    const ref = state.stairsCol(gameId).doc(edgeId);
+    const snap = await ref.get();
+    return snap.exists ? (snap.data() || {}) : null;
+  }
+
   // passthroughs used by tick
   const playersCol = (gameId) => state.playersCol(gameId);
   const zombiesCol = (gameId) => state.zombiesCol(gameId);
@@ -32,6 +39,7 @@ module.exports = function makeStateReader({ db, state }) {
   const itemsCol   = (gameId) => state.itemsCol(gameId);
   const spotsCol   = (gameId) => state.spotsCol(gameId);
   const doorsCol   = (gameId) => (typeof state.doorsCol === 'function' ? state.doorsCol(gameId) : null);
+  const stairsCol  = (gameId) => (typeof state.stairsCol === 'function' ? state.stairsCol(gameId) : null);
 
   async function readGridSize(gameId, fallback = { w: 32, h: 32 }) {
     if (typeof state.readGridSize === 'function') {
@@ -49,6 +57,7 @@ module.exports = function makeStateReader({ db, state }) {
     getGame,
     getPlayer,
     getDoor,
+    getStairEdge,
 
     playersCol,
     zombiesCol,
@@ -56,6 +65,7 @@ module.exports = function makeStateReader({ db, state }) {
     itemsCol,
     spotsCol,
     doorsCol,
+    stairsCol,
 
     readGridSize,
   };

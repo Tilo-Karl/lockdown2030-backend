@@ -1,5 +1,4 @@
-// ld2030/v1/engine/state-writer-core.js
-// Core writes: move, generic updates, game meta, doors.
+// Core writes: move, generic updates, game meta, doors, stairs edges.
 // Improvement:
 // - Always stamp updatedAt.
 // - Ensure createdAt exists (set once if missing) for all entity doc writes.
@@ -23,7 +22,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     }
   }
 
-  /** Move a player by (dx, dy) and stamp updatedAt. */
   async function movePlayer(gameId, uid, dx, dy) {
     const ref = state.playersCol(gameId).doc(uid);
 
@@ -50,7 +48,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a player doc. */
   async function updatePlayer(gameId, uid, data) {
     const ref = state.playersCol(gameId).doc(uid);
     await db.runTransaction(async (tx) => {
@@ -67,7 +64,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a zombie doc. */
   async function updateZombie(gameId, zombieId, data) {
     const ref = state.zombiesCol(gameId).doc(zombieId);
     await db.runTransaction(async (tx) => {
@@ -84,7 +80,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a human actor doc (humans collection). */
   async function updateHuman(gameId, humanId, data) {
     const ref = state.humansCol(gameId).doc(humanId);
     await db.runTransaction(async (tx) => {
@@ -101,7 +96,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into an item doc. */
   async function updateItem(gameId, itemId, data) {
     const ref = state.itemsCol(gameId).doc(itemId);
     await db.runTransaction(async (tx) => {
@@ -118,7 +112,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Generic helper: merge data into a door doc (doors collection). */
   async function updateDoor(gameId, doorId, data) {
     if (!state.doorsCol) throw new Error('updateDoor: state.doorsCol is required');
     const ref = state.doorsCol(gameId).doc(doorId);
@@ -137,7 +130,24 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return { ok: true };
   }
 
-  /** Search / scavenge a per-tile-per-floor spot (depletion tracked on the spot doc). */
+  async function updateStairEdge(gameId, edgeId, data) {
+    if (!state.stairsCol) throw new Error('updateStairEdge: state.stairsCol is required');
+    const ref = state.stairsCol(gameId).doc(edgeId);
+    await db.runTransaction(async (tx) => {
+      await ensureCreatedAtTx(tx, ref);
+      tx.set(
+        ref,
+        {
+          edgeId,
+          ...data,
+          updatedAt: serverTs(),
+        },
+        { merge: true }
+      );
+    });
+    return { ok: true };
+  }
+
   async function searchSpot({
     gameId,
     uid,
@@ -217,7 +227,6 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return out || { ok: true, spotId };
   }
 
-  /** Merge game-level metadata into games/{gameId}. */
   async function writeGameMeta(gameId, newMeta) {
     const ref = state.gameRef(gameId);
     await db.runTransaction(async (tx) => {
@@ -240,7 +249,8 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     updateZombie,
     updateHuman,
     updateItem,
-    updateDoor, // ✅
+    updateDoor,
+    updateStairEdge, // ✅
     searchSpot,
     writeGameMeta,
   };

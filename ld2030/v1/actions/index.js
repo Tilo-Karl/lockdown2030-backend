@@ -1,5 +1,4 @@
-// ld2030/v1/actions/index.js
-// One place to register all action endpoints (move/attack/equip/search/enter/stairs/climb/doors).
+// One place to register all action endpoints (move/attack/equip/search/enter/stairs/climb/doors/stairs-barricades).
 
 const registerMovePlayer    = require('./move-player');
 const registerAttackEntity  = require('./attack-entity');
@@ -16,6 +15,9 @@ const registerSecureDoor       = require('./secure-door');
 const registerBarricadeDoor    = require('./barricade-door');
 const registerDebarricadeDoor  = require('./debarricade-door');
 const registerRepairDoor       = require('./repair-door');
+
+const registerBarricadeStairs   = require('./barricade-stairs');
+const registerDebarricadeStairs = require('./debarricade-stairs');
 
 module.exports = function registerActions(app, { engine, base }) {
   if (!app) throw new Error('registerActions: app is required');
@@ -41,4 +43,8 @@ module.exports = function registerActions(app, { engine, base }) {
   registerBarricadeDoor(app, { engine, base });
   registerDebarricadeDoor(app, { engine, base });
   registerRepairDoor(app, { engine, base });
+
+  // Stairs barricades
+  registerBarricadeStairs(app, { engine, base });
+  registerDebarricadeStairs(app, { engine, base });
 };

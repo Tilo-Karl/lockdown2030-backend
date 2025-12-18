@@ -1,4 +1,3 @@
-// ld2030/v1/engine/engine.js
 // Core game logic. No legacy paths.
 // Engine coordinates rules + services, does not do Firestore transactions itself.
 
@@ -10,6 +9,9 @@ const { makeDoorService } = require('./door-service');
 const { makeDoorHandlers } = require('./handlers/door-handlers');
 const { makeClimbHandlers } = require('./handlers/climb-handlers');
 
+const { makeStairService } = require('./stair-service');
+const { makeStairHandlers } = require('./handlers/stair-handlers');
+
 function makeEngine({ reader, writer }) {
   if (!reader) throw new Error('engine: reader is required');
   if (!writer) throw new Error('engine: writer is required');
@@ -18,6 +20,10 @@ function makeEngine({ reader, writer }) {
 
   const doorService = makeDoorService({ reader });
   const doorHandlers = makeDoorHandlers({ reader, writer, doorService });
+
+  const stairService = makeStairService({ reader });
+  const stairHandlers = makeStairHandlers({ reader, writer, stairService });
+
   const climbHandlers = makeClimbHandlers({ reader, writer });
 
   async function processAction(action) {
@@ -46,6 +52,12 @@ function makeEngine({ reader, writer }) {
         return doorHandlers.handleDebarricadeDoor(action);
       case 'REPAIR_DOOR':
         return doorHandlers.handleRepairDoor(action);
+
+      // Stairs barricade actions
+      case 'BARRICADE_STAIRS':
+        return stairHandlers.handleBarricadeStairs(action);
+      case 'DEBARRICADE_STAIRS':
+        return stairHandlers.handleDebarricadeStairs(action);
 
       case 'ATTACK_ENTITY':
         return handleAttackEntity(action);
@@ -93,7 +105,9 @@ function makeEngine({ reader, writer }) {
         const fx = Number(plan.from?.x);
         const fy = Number(plan.from?.y);
         if (Number.isFinite(fx) && Number.isFinite(fy)) {
-          await doorHandlers.autoUnsecureOnExit({ gameId, x: fx, y: fy, byXY });
+          if (typeof doorHandlers.autoUnsecureOnExit === 'function') {
+            await doorHandlers.autoUnsecureOnExit({ gameId, x: fx, y: fy, byXY });
+          }
         }
       }
 
@@ -143,8 +157,8 @@ function makeEngine({ reader, writer }) {
     if (!buildingId) throw new Error('ENTER_BUILDING: must_be_on_building_tile');
 
     // Door gate (Quarantine model): secured/barricaded blocks entering from outside (unless broken).
-    const d = await doorService.readDoorMerged(gameId, x, y);
-    if (doorService.isBlockedFromOutside(d)) throw new Error('ENTER_BUILDING: must_climb_in');
+    const d = await doorService.loadDoorOrDefault({ gameId, x, y });
+    if (doorService.isEnterBlockedFromOutside(d)) throw new Error('ENTER_BUILDING: must_climb_in');
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;
@@ -194,6 +208,10 @@ function makeEngine({ reader, writer }) {
     const nextZ = z + step;
     if (nextZ < 0) throw new Error('STAIRS: cannot_go_below_0');
     if (nextZ > (floors - 1)) throw new Error('STAIRS: floor_out_of_range');
+
+    // Stairs barricade gate (edge between floors)
+    const edge = await stairService.loadEdgeOrDefault({ gameId, buildingId, zFrom: z, zTo: nextZ });
+    if (stairService.isBlocked(edge)) throw new Error('STAIRS: blocked_by_barricade');
 
     const apCost = 1;
     const curAp = Number.isFinite(actor.currentAp) ? actor.currentAp : 0;

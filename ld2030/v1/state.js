@@ -11,11 +11,14 @@ module.exports = function makeState(db, admin) {
   const humansCol  = (gameId) => gameRef(gameId).collection('humans');
   const itemsCol   = (gameId) => gameRef(gameId).collection('items');
 
-  // NEW: per-tile/per-floor search state (shared world)
+  // per-tile/per-floor search state (shared world)
   const spotsCol   = (gameId) => gameRef(gameId).collection('spots');
 
-  // NEW: doors per building tile
+  // doors per building tile
   const doorsCol   = (gameId) => gameRef(gameId).collection('doors');
+
+  // NEW: stair-edge barricades per building (between floors)
+  const stairsCol  = (gameId) => gameRef(gameId).collection('stairs');
 
   // Spawn writer uses the same collections
   const stateForSpawn = {
@@ -122,7 +125,8 @@ module.exports = function makeState(db, admin) {
     humansCol,
     itemsCol,
     spotsCol,
-    doorsCol, // ✅
+    doorsCol,
+    stairsCol, // ✅
     writeMapAndGame,
     readGridSize,
   };
