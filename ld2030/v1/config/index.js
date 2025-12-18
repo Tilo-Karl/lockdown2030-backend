@@ -9,6 +9,7 @@ const {
 } = require('./config-tile');
 const { GRID, MAP, PLAYER, ZOMBIE, DISTRICTS } = require('./config-game');
 const TICK = require('./config-tick');
+const { DOOR } = require('./config-doors');
 
 module.exports = {
   // Tiles
@@ -23,6 +24,7 @@ module.exports = {
   PLAYER,
   ZOMBIE,
   DISTRICTS,
+  DOOR,
 
   // Tick / turn config (AP regen, zombie pacing, etc.)
   TICK,
