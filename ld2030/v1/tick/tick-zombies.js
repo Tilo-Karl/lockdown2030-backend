@@ -11,8 +11,15 @@
 //   - If no door doc exists on that tile => enter.
 // - Once inside, zombies can move within the same building footprint; stepping off footprint => implicit EXIT.
 // - If inside and player is INSIDE on same tile+floor => attack player (same tile).
+//
+// Stairs barricades v1 (added):
+// - Zombies only interact with stair barricades while INSIDE.
+// - When a zombie tries to change floors (dz +/-1):
+//   - If stair barricade exists for that floor-edge AND is CLOSED (broken=false and isOpen=false) => attack it (same tile), do not change floors.
+//   - If stair barricade is OPEN/BROKEN or missing => change floors normally.
+//   - If the barricade breaks this tick => zombie can change floors immediately (same tick).
 
-const { TICK, DOOR } = require('../config');
+const { TICK, DOOR, STAIRS } = require('../config');
 const { resolveEntityKey } = require('../entity/resolver');
 const { getEntityConfigOrThrow } = require('../entity/registry');
 const { getBuildingIndex } = require('../engine/building-index');
@@ -27,6 +34,9 @@ function makeZombieTicker({ reader, writer }) {
     return Math.max(min, Math.min(max, x));
   }
 
+  // ---------------------------
+  // Doors (same-tile)
+  // ---------------------------
   function doorIdForTile(x, y) {
     return `d_${x}_${y}`;
   }
@@ -71,6 +81,88 @@ function makeZombieTicker({ reader, writer }) {
     const lvl = Number.isFinite(d?.barricadeLevel) ? Number(d.barricadeLevel) : 0;
 
     return Math.max(1, baseHp + secureHp + Math.max(0, lvl) * perBarr);
+  }
+
+  // ---------------------------
+  // Stairs barricades (same-tile floor-edge)
+  // ---------------------------
+  // Convention: barricade doc is keyed by the *edge floor* between z and z+1.
+  // So moving between floors a<->b uses edgeZ = min(a,b).
+  function stairIdForEdge(x, y, edgeZ) {
+    return `s_${x}_${y}_${edgeZ}`;
+  }
+
+  function stairDefaults(x, y, edgeZ) {
+    return {
+      stairId: stairIdForEdge(x, y, edgeZ),
+      x,
+      y,
+      z: edgeZ,             // edge floor index
+      isOpen: false,
+      barricadeLevel: 0,
+      broken: false,
+      hp: 0,
+    };
+  }
+
+  function mergeStair(x, y, edgeZ, raw) {
+    return raw ? { ...stairDefaults(x, y, edgeZ), ...raw } : null; // null means "no stair doc"
+  }
+
+  function isStairBlockingZombie(s) {
+    if (!s) return false; // no stair doc => no block
+    if (s.broken === true) return false;
+    if (s.isOpen === true) return false;
+    return true; // closed blocks
+  }
+
+  function computeStairHp(s) {
+    const existing = Number.isFinite(s?.hp) ? Number(s.hp) : 0;
+    if (existing > 0) return existing;
+
+    const baseHp =
+      Number.isFinite(STAIRS?.BASE_HP) ? Number(STAIRS.BASE_HP) :
+      3;
+
+    const perBarr =
+      Number.isFinite(STAIRS?.HP_PER_BARRICADE_LEVEL) ? Number(STAIRS.HP_PER_BARRICADE_LEVEL) :
+      3;
+
+    const lvl = Number.isFinite(s?.barricadeLevel) ? Number(s.barricadeLevel) : 0;
+
+    return Math.max(1, baseHp + Math.max(0, lvl) * perBarr);
+  }
+
+  function stairDamageFromCfg(cfg) {
+    const dmg =
+      (Number.isFinite(cfg?.stairDamage) ? Number(cfg.stairDamage) : null) ??
+      (Number.isFinite(cfg?.doorDamage) ? Number(cfg.doorDamage) : null) ??
+      (Number.isFinite(cfg?.attackDamage) ? Number(cfg.attackDamage) : null) ??
+      1;
+    return Math.max(1, Math.trunc(dmg));
+  }
+
+  async function readStair(gameId, stairId) {
+    if (typeof reader.getStair === 'function') return reader.getStair(gameId, stairId);
+    if (typeof reader.getStairs === 'function') return reader.getStairs(gameId, stairId);
+    if (typeof reader.getStairBarricade === 'function') return reader.getStairBarricade(gameId, stairId);
+    // fallback: try stairsCol if present
+    if (typeof reader.stairsCol === 'function') {
+      const ref = reader.stairsCol(gameId)?.doc?.(stairId);
+      if (ref && typeof ref.get === 'function') {
+        const snap = await ref.get();
+        return snap.exists ? (snap.data() || {}) : null;
+      }
+    }
+    return null;
+  }
+
+  async function writeStair(gameId, stairId, data) {
+    if (typeof writer.updateStair === 'function') return writer.updateStair(gameId, stairId, data);
+    if (typeof writer.updateStairs === 'function') return writer.updateStairs(gameId, stairId, data);
+    if (typeof writer.updateStairBarricade === 'function') return writer.updateStairBarricade(gameId, stairId, data);
+    // no writer => silently skip (keeps tick alive)
+    return { ok: false, skipped: true };
   }
 
   function doorDamageFromCfg(cfg) {
@@ -141,6 +233,9 @@ function makeZombieTicker({ reader, writer }) {
     let doorsBroken = 0;
     let zombiesEntered = 0;
 
+    let stairsHit = 0;
+    let stairsBroken = 0;
+
     let playersHit = 0;
 
     const roamDefault = Number(TICK?.ZOMBIE?.ROAM ?? 1);
@@ -155,10 +250,10 @@ function makeZombieTicker({ reader, writer }) {
       alive += 1;
 
       const kind = z.kind || 'WALKER';
-      const key = resolveEntityKey('ZOMBIE', kind);
-      if (!key) continue;
+      const eKey = resolveEntityKey('ZOMBIE', kind);
+      if (!eKey) continue;
 
-      const cfg = getEntityConfigOrThrow(key);
+      const cfg = getEntityConfigOrThrow(eKey);
 
       const x = clamp(z.pos.x, 0, width - 1);
       const y = clamp(z.pos.y, 0, height - 1);
@@ -268,6 +363,7 @@ function makeZombieTicker({ reader, writer }) {
       }
 
       // Zombie stairs: if inside a multi-floor building, sometimes go up/down one floor.
+      // Now: if stair barricade exists and is CLOSED => attack it (same tile) instead of moving floors.
       if (nextInside) {
         const bId = byXY.get(`${nx},${ny}`) || null;
         if (!bId) {
@@ -291,7 +387,51 @@ function makeZombieTicker({ reader, writer }) {
 
             if (Math.random() < stairsChance) {
               const dz = Math.random() < 0.5 ? -1 : 1;
-              nz = clamp(nz + dz, 0, floors - 1);
+              const targetZ = clamp(nz + dz, 0, floors - 1);
+
+              if (targetZ !== nz) {
+                const edgeZ = Math.min(nz, targetZ);
+                const stairId = stairIdForEdge(nx, ny, edgeZ);
+
+                const rawStair = await readStair(gameId, stairId);
+                const s = mergeStair(nx, ny, edgeZ, rawStair);
+
+                if (isStairBlockingZombie(s)) {
+                  // Attack stair barricade ON SAME TILE, do not change floors
+                  stairsHit += 1;
+
+                  const curHp = computeStairHp(s);
+                  const dmg = stairDamageFromCfg(cfg);
+                  const nextHp = Math.max(0, curHp - dmg);
+
+                  if (nextHp <= 0) {
+                    stairsBroken += 1;
+                    await writeStair(gameId, stairId, {
+                      stairId,
+                      x: nx,
+                      y: ny,
+                      z: edgeZ,
+                      broken: true,
+                      isOpen: true,
+                      barricadeLevel: 0,
+                      hp: 0,
+                    });
+                    // After breaking, allow floor move immediately (same tick)
+                    nz = targetZ;
+                  } else {
+                    await writeStair(gameId, stairId, {
+                      stairId,
+                      x: nx,
+                      y: ny,
+                      z: edgeZ,
+                      hp: nextHp,
+                    });
+                  }
+                } else {
+                  // No barricade or it's open/broken => move floors
+                  nz = targetZ;
+                }
+              }
             }
           }
         }
@@ -325,6 +465,8 @@ function makeZombieTicker({ reader, writer }) {
       zombiesEntered,
       doorsHit,
       doorsBroken,
+      stairsHit,
+      stairsBroken,
       playersHit,
       tickConfig: TICK?.ZOMBIE || null,
     };
