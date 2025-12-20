@@ -6,14 +6,26 @@ const BASE_ITEM = {
   ...BASE_ENTITY,
   type: 'ITEM',
 
-  durabilityMax: 1,
+  kind: 'ITEM',
+  name: 'Item',
+  description: '',
+
+  tags: [],
+
   destructible: true,
+  durabilityMax: 1,
 
   // Carried items are owned by an actorId.
   carriedBy: null,
 
+  // Economy + weight
   weight: 1,
   value: 0,
+
+  // Stack model (ammo/consumables)
+  stackable: false,
+  stackMax: 1,
+  quantity: 1,
 
   // Adds to actor.carryCap when equipped (backpack/cart).
   carryBonus: 0,

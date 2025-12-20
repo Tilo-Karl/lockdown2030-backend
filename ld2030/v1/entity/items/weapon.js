@@ -9,6 +9,7 @@ const ITEM_WEAPON_CROSSBOW = {
   ...ITEM_WEAPON_BASE,
   kind: 'CROSSBOW',
   name: 'Crossbow',
+  description: 'Quiet ranged weapon. Needs bolts.',
   tags: ['item:weapon', 'ranged', 'silent'],
 
   slot: 'weapon',
@@ -34,6 +35,7 @@ const ITEM_WEAPON_PISTOL = {
   ...ITEM_WEAPON_BASE,
   kind: 'PISTOL',
   name: '9mm Pistol',
+  description: 'Compact firearm. Loud. Uses 9mm ammo.',
   tags: ['item:weapon', 'ranged', 'gun'],
 
   slot: 'weapon',
@@ -59,6 +61,7 @@ const ITEM_WEAPON_SHOTGUN = {
   ...ITEM_WEAPON_BASE,
   kind: 'SHOTGUN',
   name: 'Shotgun',
+  description: 'Close-range monster. Uses shells.',
   tags: ['item:weapon', 'ranged', 'gun'],
 
   slot: 'weapon',
@@ -84,6 +87,7 @@ const ITEM_WEAPON_RIFLE = {
   ...ITEM_WEAPON_BASE,
   kind: 'RIFLE',
   name: 'Hunting Rifle',
+  description: 'Longer range. Uses 5.56 ammo.',
   tags: ['item:weapon', 'ranged', 'gun'],
 
   slot: 'weapon',
@@ -111,6 +115,7 @@ const ITEM_WEAPON_KNIFE = {
   ...ITEM_WEAPON_BASE,
   kind: 'KNIFE',
   name: 'Knife',
+  description: 'Fast. Cheap. Gets stuck sometimes.',
   tags: ['item:weapon', 'melee', 'blade'],
 
   slot: 'weapon',
@@ -131,6 +136,7 @@ const ITEM_WEAPON_BAT = {
   ...ITEM_WEAPON_BASE,
   kind: 'BASEBALL_BAT',
   name: 'Baseball Bat',
+  description: 'Blunt weapon. Reliable.',
   tags: ['item:weapon', 'melee', 'blunt'],
 
   slot: 'weapon',
@@ -151,6 +157,7 @@ const ITEM_WEAPON_PIPE = {
   ...ITEM_WEAPON_BASE,
   kind: 'PIPE',
   name: 'Metal Pipe',
+  description: 'Heavy blunt weapon. Hits hard.',
   tags: ['item:weapon', 'melee', 'blunt'],
 
   slot: 'weapon',
@@ -171,6 +178,7 @@ const ITEM_WEAPON_MACHETE = {
   ...ITEM_WEAPON_BASE,
   kind: 'MACHETE',
   name: 'Machete',
+  description: 'Sharp, nasty, effective.',
   tags: ['item:weapon', 'melee', 'blade'],
 
   slot: 'weapon',
@@ -187,26 +195,6 @@ const ITEM_WEAPON_MACHETE = {
   durabilityMax: 220,
 };
 
-const ITEM_WEAPON_SPEAR = {
-  ...ITEM_WEAPON_BASE,
-  kind: 'SPEAR',
-  name: 'Makeshift Spear',
-  tags: ['item:weapon', 'melee', 'reach'],
-
-  slot: 'weapon',
-  slotKey: 'main',
-  layer: null,
-
-  damage: 11,
-  hitChanceBonus: -0.03,
-  range: 2,
-  attackApCost: 1,
-
-  weight: 3,
-  value: 20,
-  durabilityMax: 180,
-};
-
 module.exports = {
   ITEM_WEAPON_CROSSBOW,
   ITEM_WEAPON_PISTOL,
@@ -217,5 +205,4 @@ module.exports = {
   ITEM_WEAPON_BAT,
   ITEM_WEAPON_PIPE,
   ITEM_WEAPON_MACHETE,
-  ITEM_WEAPON_SPEAR,
 };

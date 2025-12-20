@@ -14,3 +14,17 @@ curl -X POST "https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init
   -H "Content-Type: application/json" \
   https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init-game \
   -d '{"gameId":"lockdown2030"}'
+
+// Get tick game summary:
+
+  curl -i https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/health
+
+  curl -sS -X POST https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/tick-game \
+  -H "Content-Type: application/json" \
+  -d '{"gameId":"lockdown2030"}' | jq
+
+  curl -i -X POST https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/tick-game \
+  -H "Content-Type: application/json" \
+  -d '{"gameId":"lockdown2030"}'
+
+  

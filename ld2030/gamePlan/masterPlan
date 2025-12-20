@@ -1,0 +1,432 @@
+# Lockdown 2030 — Master Plan (single source of truth)
+
+## Current Phase
+**Phase:** 2 (Infra + Barriers + Skills scaffolding)
+**Backend status:** ✅ doors + stairs barricades + zombie tick interaction working
+**Next milestone (concrete):** Add **cells** runtime docs (x,y,z,layer) + per-cell infra (fuse/water/generator) + edge-barriers (doors/stairs) + zombie priority targeting + cell hp/ruin scaffold
+
+## Locked Rules (do not debate later)
+- **Same-tile rule:** attacks/interactions happen only on the same tile (no adjacency hits).
+- **Zombie priority on a cell (locked):**
+  1) Attack player (same cell, matching layer)
+  2) Attack blocking barrier edge reachable from this cell (door edge for enter; stairs edge for floor change)
+  3) If barrier not blocking: enter / change floor
+  4) If installed infra exists and you want “they hate power/water”: hit installed thing next (future)
+  5) If nothing else: move/wander
+- **Door passability (locked):**
+  - A door is passable **only** if it is open OR destroyed (hp <= 0).
+  - “Broken” is an **integrity label**, not passable. Broken doors still block.
+  - So for zombie outside→inside enter: if isOpen → enter; else if hp<=0 → enter; else blocked (attack door on same tile).
+- **Player skills:**
+  - R1–R3 general (anyone can buy)
+  - Class unlock = hit R3 in the 2 prereq skills
+  - After class lock: class prereq skills can go R4+
+  - Neutral skills can go to R6 for any class
+
+  ## "We're clear" checklist
+- Human classes: Bruiser / Gunslinger / Scavenger / Warden / Medic
+- Prereqs: 2 skills @ R3 (no "2 of 3" system)
+- Neutral skills: Athletics + Brawling can go R6 for anyone
+- Zombie forms: Walker / Runner / Brute / Smart
+
+## Data Model (Firestore collections)
+- cells (locked): `games/{gameId}/cells/c_{x}_{y}_{z}_{layer}`
+  - layer: `0 = outside`, `1 = inside`
+  - this is the single runtime source-of-truth for per-cell state (hp/ruin/infra/search/terrain)
+- edges (locked): `games/{gameId}/edges/e_{ax}_{ay}_{az}_{al}__{bx}_{by}_{bz}_{bl}`
+  - doors and stairs are edges so their hp/state never duplicates/drifts
+  - door edges typically connect outside<->inside at the same (x,y,z) today, but can support balcony/roof/escape doors later
+  - stairs edges connect inside (layer=1) between z and z±1
+
+## Open TODO (ordered)
+1) **Cells + Edges runtime schema + reader/writer**:
+   - `cells/c_{x}_{y}_{z}_{layer}` (terrain + type + hp/maxHp/ruined + per-cell infra + search depletion)
+   - `edges/e_{a...}__{b...}` (doors + stairs barricades)
+2) **New player actions** (mutate the current cell or a reachable edge from the current cell):
+   - repair_fuse, repair_water, install_generator, repair_generator
+   - secure_door / barricade / debarricade / repair_door (edge-based)
+   - barricade_stairs / debarricade_stairs / repair_stairs (edge-based)
+3) **Zombie tick**:
+   - after player + barriers: hit blocking edge (door/stairs) on the current cell
+   - then hit installed infra on the same cell (fuse/water/generator)
+4) **Noise/Groan map**:
+   - write noise from actions + zombies; smart form uses it
+5) **Door repair + cell ruin**:
+   - repair restores edge hp even when not destroyed
+   - cells can be progressively ruined (design locked below)
+
+---
+
+# Detailed Plan
+(Everything below is authoritative; update here, not in chat.)
+
+#  Skills
+DESIGN — Skills + Zombie Forms + Noise (Groan Map)
+
+1) Human skill system
+
+Core rule
+    •    Skills are ranked.
+    •    R1–R3 are “general tier” (anyone can buy them).
+    •    Class unlock happens when you hit R3 in the 2 prereq skills for that class.
+    •    After class is locked, only that class’s prereq skills can go R4+.
+    •    Neutral skills can go to R6 for any class.
+
+Classes and prereqs (2 skills @ R3)
+
+Bruiser
+    •    Melee (R3)
+    •    Dead Calm (R3)
+
+Gunslinger
+    •    Firearms (R3)
+    •    Dead Calm (R3)
+
+Scavenger
+    •    Finder (R3)
+    •    Sneaky Bastard (R3)  (“Stealth” skill; one skill that reduces noise for most non-gun actions)
+
+Warden
+    •    Fixer (R3)
+    •    Melee (R3)  (wardens fight with tools, fine)
+
+Medic
+    •    First Aid (R3)
+    •    Dope Doc (R3) (pharmacology/drugs)
+
+General skill list (locked names)
+
+Class-prereq skills (cap R6 only after class lock):
+    •    Melee
+    •    Firearms
+    •    Dead Calm
+    •    Fixer
+    •    Finder
+    •    Sneaky Bastard
+    •    First Aid
+    •    Dope Doc
+
+Neutral skills (cap R6 for anyone):
+    •    Athletics
+    •    Brawling
+
+What skills “do” mechanically (initial knobs)
+
+Start simple: AP / Noise / Stress.
+    •    AP costs: unskilled = expensive; rank reduces AP.
+    •    Noise: affects zombie attraction (groan map). Sneaky Bastard reduces noise for actions (not gunfire).
+    •    Stress: universal pressure stat (not guns-only). Dead Calm reduces stress impact.
+
+Dope Doc drug ladder (class-tier content; names can be tuned later)
+    •    R1: Ghost Dose → “sneak past” tool (lowers noise output for a short window / or lowers detection chance later).
+    •    R2: Focus Dose → improves hit chance (when that mechanic exists).
+    •    R3: Fury Dose → boosts damage (melee/unarmed).
+    •    R4: Adrenal Shot → +1 AP (strong, rare).
+    •    R5: Stunner → short stun/slow on a zombie (later).
+    •    R6: Revive / Anti-turn → only if/when “downed/infected” exists.
+
+(You can implement R1–R3 first; R4+ only once Medic class is lockable.)
+
+⸻
+
+2) Zombie forms + skills
+
+Forms (locked)
+    •    Walker (baseline)
+    •    Runner (fast + climbs + stairs-happy)
+    •    Brute (smashes barriers hard)
+    •    Smart (best at “noise/groan map” + coordination)
+
+Zombie skill philosophy
+    •    Don’t rewrite tick logic.
+    •    Zombie “skills” are modifiers (numbers/weights) that adjust:
+    •    attraction to noise
+    •    move bias
+    •    barrier damage
+    •    stairs/climb chance
+    •    coordination (Smart only)
+
+⸻
+
+3) What mapMeta / byXY is still for
+
+## World blueprint vs runtime (locked)
+- `games/{gameId}.mapMeta` = static world blueprint (terrain, footprints, floor counts). Written on init; not a gameplay state store.
+- `cells/c_{x}_{y}_{z}_{layer}` + `edges/e_{a...}__{b...}` = runtime state (hp/ruin/infra/search + door/stairs barriers).
+
+⸻
+
+4) Noise / Groan Map (Firestore, visible)
+
+Goal
+
+You can see why zombies are drifting: where noise is, how strong, when it decays.
+
+Collections
+
+Under: games/{gameId}/
+
+A) Aggregated per-tile noise (main)
+noiseTiles/{noiseId} where noiseId = n_{x}_{y}_{z}
+
+Fields:
+    •    noiseId (string)
+    •    x (int), y (int), z (int)
+    •    level (int) — current noise intensity
+    •    kind (string) — "groan" | "door_hit" | "stairs_hit" | "gunshot" | "combat" | "search" | ..."
+    •    sourceId (string|null) — zombieId/playerId
+    •    sourceType (string|null) — "ZOMBIE"|"PLAYER"
+    •    updatedAt (timestamp)
+    •    decaysAt (timestamp) — when this tile should reach 0 (or be deleted)
+    •    round (int|null) — optional, if you track rounds
+
+Tick behavior:
+    •    Writing noise adds to level (clamp to max), updates kind/source, extends decaysAt.
+    •    Each tick: decay level down (or lazy-decay by time math).
+
+B) Optional event log (debug, last-N)
+noiseEvents/{eventId} where eventId is timestamp-based.
+
+Fields:
+    •    at (timestamp)
+    •    x,y,z
+    •    delta (int)
+    •    kind
+    •    sourceId/sourceType
+
+(Only do this if you want replay-style debugging. Otherwise noiseTiles is enough.)
+
+What generates noise (first pass)
+    •    Player actions: SEARCH, BARRICADE, REPAIR, combat, gunshot (big).
+    •    Zombie actions: groan when player is present, door/stairs hits.
+
+How zombies use it (first pass)
+    •    Smart: strongly biases movement toward highest level tiles in radius.
+    •    Others: weak bias toward noise tiles; mostly still wander.
+
+⸻
+
+# Barriers & Repair (doors + stairs barricades)
+
+## Barrier rules (locked)
+- Barriers are **same-tile** interactions.
+- Zombies do **not** attack adjacent tiles. If they attack a barrier, it's the barrier **on their current tile**.
+- Doors are **edge barriers**: they block *outside → inside* enter when **isOpen=false AND hp>0**.
+- Doors are passable only if **isOpen=true** OR **hp<=0 (destroyed)**.
+- Stairs barricades are **edge barriers**: they block *floor change* when **hp>0**.
+
+## Door rules (locked)
+- Door state lives in an **edge doc**, not in cells (prevents inside/outside drift).
+- Door edge doc exists at: `games/{gameId}/edges/e_{a...}__{b...}` with `kind="door"`.
+- Typical entry door today:
+  - endpoint A = outside cell `(x,y,z=0,layer=0)`
+  - endpoint B = inside cell  `(x,y,z=0,layer=1)`
+- Entering from outside (zombie logic):
+  - if the door edge is missing → enter
+  - else if isOpen=true → enter
+  - else if hp<=0 → enter (destroyed)
+  - else → blocked; zombie hits the door **edge** (same-tile rule: must be on one endpoint cell)
+- Player door actions are inside-only (secure/barricade/debarricade/repair) and mutate the door **edge**.
+
+## Shared “integrity” labels (doors, fuses, water, generators, building HP)
+- At 100% (hp == maxHp): no integrity label (avoid “intact” everywhere).
+- Otherwise show ONE integrity label:
+  - hp <= 0 → (destroyed)
+  - 0 < hp/maxHp <= 0.33 → (almost destroyed)
+  - 0.33 < hp/maxHp <= 0.66 → (broken)
+  - 0.66 < hp/maxHp < 1.0 → (damaged)
+- State label is separate: (open) / (closed) where relevant.
+
+## Barricade labels + skill gate (v1)
+- If isSecured=true AND barricadeLevel==0 → (secured)
+- If barricadeLevel>=1 → (barricaded L{level})
+- SECURE: anyone can do it.
+- BARRICADE L1–L3: requires Fixer R1.
+
+## Door repair (planned, not implemented yet)
+- Allow repairing **any** door damage (not only when broken).
+- Rule:
+  - Repair adds hp up to computed max hp.
+  - If door is broken, repair can first “un-break” it (your current rule is: repaired door becomes OPEN).
+- NOTE: do not implement until Infra milestone is done.
+
+## Stairs barricade rules (locked)
+- Stairs barricade state lives in an **edge doc** with `kind="stairs"`.
+- A stairs edge connects inside cells `(x,y,z,layer=1)` <-> `(x,y,z±1,layer=1)`.
+- Zombies: if they attempt stairs and the stairs edge blocks (hp>0), they hit it (same-tile rule), otherwise they change floor.
+
+---
+
+# Infrastructure (power, water, generators)
+
+## Core rule (locked)
+- **Infra is per-cell.** Every cell (x,y,z,layer) can be damaged independently.
+- Infra lives on the **cell doc**. No separate fuses/water/generators collections.
+- Same-tile rule applies: zombies and players interact with infra only on their current (x,y,z,layer).
+
+## Firestore location (locked)
+- games/{gameId}/cells/c_{x}_{y}_{z}_{layer}
+
+## Cell doc shape (locked v1)
+Fields:
+- `cellId` (string) — `c_{x}_{y}_{z}_{layer}`
+- `x` (int), `y` (int), `z` (int), `layer` (int: 0=outside, 1=inside)
+
+Outside-only (present when layer=0):
+- `terrain` (string) — tile code (roads/grass/water/etc)
+- `blocksMove` (bool)
+- `moveCost` (int)
+
+Inside-only (present when layer=1):
+- `type` (string) — HOTEL/BAR/APARTMENT/etc (runtime convenience; used for loot/search)
+
+Shared runtime state (either layer, when relevant):
+- `hp` (int), `maxHp` (int), `ruined` (bool)
+- `fuse` (map) { `hp` (int), `maxHp` (int) }
+- `water` (map) { `hp` (int), `maxHp` (int) }
+- `generator` (map) { `installed` (bool), `hp` (int), `maxHp` (int) }
+- `search` (map) { `remaining` (int), `maxRemaining` (int), `searchedCount` (int) }
+- `updatedAt`, `createdAt`
+
+Notes:
+- We are going **full cell**: outside terrain also exists as cells (at minimum z=0, layer=0).
+- Indoor cells exist for building footprint tiles across floors (z=0..floors-1, layer=1).
+- Doors/stairs are not stored on the cell; they live as edges so their hp/state cannot drift.
+
+## District-wide utilities (locked V1)
+- Power, water, and ISP are **district-wide switches** (V1). No tile-to-tile propagation.
+- Each cell resolves availability from:
+  - district switch
+  - the cell's local fuse/water HP
+  - optional local generator override
+
+### districtState
+Firestore:
+- `games/{gameId}/districtState/{districtId}`
+
+Fields (v1):
+- `districtId` (string)
+- `powerOn` (bool)
+- `waterOn` (bool)
+- `ispOn` (bool)  // ISP/phone+text availability (not a radio speaker)
+- `updatedAt`, `createdAt`
+
+### Availability rules
+Cell has **power** if:
+- (`districtState.powerOn` AND `cell.fuse.hp > 0`) OR (`cell.generator.installed` AND `cell.generator.hp > 0`)
+
+Cell has **water** if:
+- (`districtState.waterOn` AND `cell.water.hp > 0`)
+
+Cell has **ISP** (phone+text) if:
+- (`districtState.ispOn` AND cell has power)
+
+Notes:
+- “ISP” is a district utility (phone+text), **not** a noise source and not part of the groan/noise map.
+- Building `type` drives loot/search tables (facility buildings are just special `type`s).
+
+## Actions (locked)
+Player actions (mutate the current cell doc):
+- `REPAIR_FUSE`
+- `REPAIR_WATER`
+- `INSTALL_GENERATOR` (requires item + Fixer)
+- `REPAIR_GENERATOR`
+
+Zombie/event actions (same targeting rules, same cell doc fields):
+- `BREAK_FUSE`
+- `BREAK_WATER`
+- `BREAK_GENERATOR`
+
+## Zombie targeting rules (locked priority order when on an inside cell)
+1) Player on same cell (matching layer)
+2) Blocking barrier edge (door edge for enter; stairs edge for floor change)
+3) If inside and no player: hit installed infra on the same cell (prefer generator if installed=true, otherwise fuse/water)
+4) Else wander / noise-bias
+
+---
+
+# Building Health & Ruin
+
+## Core rule (locked)
+- **There is no shared building HP across multiple tiles/floors.**
+- Damage/ruin is tracked per **cell** (x,y,z,layer) on cells/c_{x}_{y}_{z}_{layer}.
+- A zombie must ruin cells one-by-one (no "one smash ruins a whole footprint").
+
+## Effects (locked intent)
+- As a cell degrades (hp down, infra broken), it becomes less useful:
+  - repairs become harder/limited
+  - loot/search quality can degrade
+  - at `ruined=true`, treat it as no longer a safe haven (rules to be implemented but the state lives on the cell doc).
+
+## Brutes
+- Brutes deal extra damage to barriers/infra/cell hp (numbers tuned in config; model is locked).
+
+---
+
+# Search & Loot
+
+## Current
+- Search depletion state lives on the cell: `cells/c_{x}_{y}_{z}_{layer}.search` (remaining/maxRemaining/searchedCount).
+
+## Planned expansion
+- Loot tables depend on:
+  - inside/outside
+  - building type (from mapMeta)
+  - player skills (Finder, Dope Doc)
+- Add “rare pools” gated by skills:
+  - Dope Doc: drug pool weighting by rank
+  - Finder: better rolls / less junk
+
+---
+
+# Tick Systems
+
+## Tick modules
+- tick-player: AP/HP regen + rounds
+- tick-zombies: move + cell/layer transitions + edge barriers (doors/stairs) + players + infra targeting + noise write
+
+## Noise integration (planned)
+- Actions + zombie hits write noiseTiles.
+- Smart form uses noiseTiles more strongly.
+
+---
+
+# Infection & Player-Zombies (do NOT fork systems)
+
+## Principle (locked)
+- Zombie behavior is tick-driven.
+- Player-controlled zombies are **an override layer** (intent) on top of the same capability gates.
+
+## Minimal safe path (planned)
+- Keep players in `players` collection always.
+- When a player turns:
+  - set `players/{uid}.isZombie=true`
+  - also create/update a mirrored doc in `zombies/{uid}` (same id) for tick brain
+  - keep `players/{uid}` as the authoritative “account/player identity” doc
+
+## Why mirror instead of move
+- You always need a stable way to list “real players”.
+- Zombies collection remains the canonical input for zombie tick AI.
+
+---
+
+# Milestones
+
+## Milestone: Infra v1
+- Create cells + edges runtime schema + reader/writer helpers
+- Implement player actions: repair_fuse, repair_water, install_generator, repair_generator
+- Update tick-zombies to hit blocking edges + installed infra (after player priority)
+- Add tick summary counters: fusesHit/broken, waterHit/broken, generatorsHit/broken
+
+## Milestone: Noise v1
+- Implement noiseTiles writes for:
+  - player search
+  - door hits / stairs hits
+  - gunshots (big)
+- Smart form begins biasing toward noise
+
+## Milestone: Door repair v2
+- Repair restores hp even if not broken
+
+## Milestone: Building ruin v1
+- Building hp + ruined state + effects
