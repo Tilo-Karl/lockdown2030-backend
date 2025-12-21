@@ -24,7 +24,7 @@ Big Bang is DONE when all are true:
    - MOVE (normal/overweight)
    - SEARCH (1 roll, remaining--, hard stop at 0)
    - ATTACK (melee/ranged AP, ammo usage, durability)
-   - REPAIR (toolkit-only until ~1/3 maxHp, then toolkit+part consumption)
+   - REPAIR (toolkit-only until ~50%, then toolkit+part consumption)
    - BARRICADE / DEBARRICADE / SECURE
    - STAND_UP (10 AP → 10 HP, only when online/active)
 
@@ -180,7 +180,7 @@ Implement:
 **Goal:** repairs are predictable and gated correctly.
 
 Implement:
-- “toolkit-only until repaired hp reaches ~1/3 maxHp”
+- “toolkit-only until repaired hp reaches ~50%”
 - after threshold: each repair consumes toolkit durability + 1 part item
 - part mapping:
   - FUSE_KIT for fuse
@@ -259,3 +259,4 @@ More notes because you are fucking THICK IN THE HEAD: What’s left for the big-
 	•	map-gen/city-layout: any placement logic using RADIO_STATION → ISP
 	•	any client/UI labels / analytics / tests / enums that still say RADIO_STATION
     DO THE ABOVE RADIO STATION TO ISP CHANGE ALSO in WHATEVER PASS WE ARE ON that touches any file with radtio station in it. NOW SHUT THE FUCK UP ABOUT
+    Right now the ledger says “add it if you don’t have it yet” — good — but make it explicit that this is mandatory for V1 district gameplay. its explicit, now shut the FUCK up.
