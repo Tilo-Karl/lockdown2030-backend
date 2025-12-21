@@ -1,0 +1,126 @@
+Here’s what’s missing as concepts in the masterplan (not “code TODOs”, but game contracts you haven’t locked yet):
+	•	Time model: what a “tick” means in real time (and how “24h hunger/water” maps onto ticks), plus day/night (even if it’s “not in v1”, it needs a placeholder).
+	•	Progression currency loop: exactly how skill ranks advance + anti-grind rule + what you spend (points/XP) and how much per rank.
+	•	Combat contract v1: one concrete formula set (hit, dodge from Athletics, armor mitigation, damage spread/variance, crit or none) so items/skills aren’t floating.
+	•	Stress contract: number of levels + exact penalty (what rolls it affects, and by how much).
+	•	District objective contract: exactly what makes powerOn/waterOn/ispOn flip off, and the restore loop (steps + required items + number of actions) so “district gameplay” actually exists.
+	•	Visibility / info rules: fog-of-war yes/no, what you can see without interacting, and whether you show exact HP vs integrity labels only.
+	•	Player death/downtime contract: you wrote a “stand up later / 10 AP / 10 HP” idea, but it’s not tied into a consistent rule for offline/online, protection from spawn-camping, and whether death drops inventory.
+	•	Item rules beyond “exists”: stacking, ammo packaging, durability loss triggers, drop rules, and what happens to items in a searched cell over time (persist? despawn?).
+	•	Multiplayer interaction rules: PvP allowed or not, stealing/looting other players, grief constraints (especially with doors/barricades), and what ISP actually enables/blocks gameplay-wise.
+	•	Win/lose / endgame: what “winning” looks like (rescue? holding districts? curing? extraction?), even if it’s just a stub.
+Here are the missing concepts from the masterplan — now LOCKED with concrete V1 answers (not code TODOs):
+
+1) Time model (tick + 24h mapping)
+- Tick length (V1): 5 minutes real time.
+- 24h = 288 ticks.
+- Hunger/Hydration: -1 Hunger and -1 Hydration per 6h (changed from 24H), max -4 hunger & hydration.
+- Day/Night (placeholder): derived from world tick modulo 288; cosmetic only in V1.
+
+2) Progression currency loop (skills)
+- Currency: Skill Points (SP) on player.
+- Gain SP:
+  - +1 SP per zombie kill (last-hit credit).
+  - +1 SP per 20 meaningful actions (SEARCH / REPAIR / BARRICADE / ATTACK) that actually change state.
+- Anti-grind rule: actions only count if state changes:
+  - SEARCH counts only if remaining decreases and a roll happens.
+  - REPAIR counts only if hp increases.
+  - BARRICADE counts only if barricadeLevel changes.
+  - ATTACK counts only if damage > 0.
+- Rank-up costs per skill:
+  - R1: 2 SP
+  - R2: 3 SP
+  - R3: 4 SP
+  - R4: 6 SP
+  - R5: 8 SP
+  - R6: 10 SP
+
+3) Combat contract (V1 formulas)
+- Hit chance:
+  - hitChance = clamp(0.10..0.95, base + attackerHitBonus - targetDodge)
+  - base = 0.65
+  - attackerHitBonus = 0.03 * (FirearmsRank for guns OR MeleeRank for melee)
+  - targetDodge = 0.02 * targetAthleticsRank
+- Damage:
+  - raw = weapon.damage * rand(0.85..1.15)
+- Armor mitigation:
+  - final = max(1, raw - armorFlat)
+  - armorFlat = sum of equipped armor
+- Crits: none in V1.
+- Barriers vs actors: same combat model, but barriers have targetDodge = 0 and typically armorFlat = 0.
+
+4) Stress contract (levels + penalties)
+- Stress levels: 0..4.
+- Affects: combat hit chance, repair success/progress, search quality.
+- Penalties:
+  - hitChance -= 0.05 * stressLevel
+  - repairSuccessChance -= 0.10 * stressLevel (if repair has success/fail; otherwise apply to progress per action)
+  - searchRareWeightMultiplier *= (1 - 0.15 * stressLevel)
+- Dead Calm: effectiveStress = max(0, stressLevel - DeadCalmRank)
+
+5) District objective contract (power/water/ISP)
+- District utilities are driven by ONE facility cell per district:
+  - TRANSFORMER_SUBSTATION -> powerOn
+  - WATER_PLANT (add type) -> waterOn
+  - RADIO_STATION (gameplay name: ISP) -> ispOn (we have ISP now, not radio station)
+- Flip OFF rule:
+  - utility flips OFF if facility cell has ruined=true OR hp <= 0.
+- Restore loop (deterministic):
+  1) Facility cell must have 0 zombies on it.
+  2) Repair facility cell hp to >= 50% using TOOLKIT actions (no parts).
+  3) Repair facility infra:
+     - Power: fix fuse using FUSE_KIT for 3 actions.
+     - Water: fix water using PIPE_PATCH for 3 actions.
+     - ISP: fix fuse using FUSE_KIT for 2 actions.
+  4) When the above completes -> utility flips ON.
+- Zombie takedown: zombies damage facility cell hp and/or its fuse/water as they roam inside (same targeting rules).
+
+6) Visibility / info rules (V1)
+- Fog-of-war: OFF (show whole map in V1).
+- Without interacting:
+  - show building type + floor count from mapMeta; show inside/outside.
+  - do NOT show exact HP; show integrity labels only if known.
+- On same cell:
+  - show exact HP for current cell infra + relevant edge barrier.
+
+7) Player death / downtime contract (V1)
+- hp <= 0 -> DOWNED.
+- Stand up:
+  - pay 10 AP to stand immediately at 10 HP, OR
+  - wait until tick regen brings you back to 10 HP then auto-stand - no auto stand. that means stand when player not online! player will stand when they choose to.
+- Spawn-camp protection: 1-tick invulnerability on stand-up (cannot be damaged; also cannot attack).
+No invulnerability, not needed..
+- Inventory drop on downed: OFF in V1.
+no, nothing drops. corpse cannot be looted.
+
+8) Item rules beyond “exists” (V1)
+- Stacking:
+  - Stackable: ammo, bandage, painkiller, antiseptic, water, soda, canned food, MRE, stim, doses.
+  - Non-stackable: weapons, armor, backpack, cart, toolkit, generator, fuse_kit, pipe_patch.
+- Ammo packaging units:
+  - AMMO_9MM: 10 rounds
+  - AMMO_SHELL: 5 shells
+  - AMMO_556: 10 rounds
+- Consumption:
+  - guns consume 1 ammo per attack.
+- Durability loss:
+  - melee: -1 durability on hit.
+  - guns: -1 durability per attack.
+  - armor: -1 durability when it absorbs damage.
+  - toolkit: loses durability when repair increases hp.
+- Dropped items persistence:
+  - dropped items persist for 24h (288 ticks) then despawn.
+
+9) Multiplayer interaction rules (V1)
+- PvP: OFF.
+- Stealing/looting other players: OFF.
+- Door/barricade grief constraints:
+  - debarricade restricted to builder’s party (or builder if no party).
+- ISP gameplay effect:
+  - Global chat always ON.
+  - District chat + DMs require ispOn for sender’s district.
+
+10) Win/lose / endgame stub
+- No win condition in V1 (sandbox survival).
+- Endgame placeholder: “Rescue Event”
+  - Stub condition: restore power + water + ISP in all districts simultaneously for 24h -> extraction window later.

@@ -65,9 +65,10 @@ const MAP = {
     'OUTPOST',
     'BUNKER',
     'HQ',
-    'RADIO_STATION',
+    'ISP',
     'LABORATORY',
     'TRANSFORMER_SUBSTATION',
+    'WATER_PLANT',
   ],
 
   // Simple color palette for buildings (sent to clients via mapMeta.buildingPalette)
@@ -104,10 +105,11 @@ const MAP = {
     OUTPOST: '#f0d0ff',
     BUNKER: '#b0b0b0',
     HQ: '#d0fff6',
-    RADIO_STATION: '#f6d0ff',
+    ISP: '#f6d0ff',
 
     LABORATORY: '#B3E5FF',
     TRANSFORMER_SUBSTATION: '#FFD6A5',
+    WATER_PLANT: '#B3FFD9',
   },
 };
 
@@ -171,6 +173,8 @@ const DISTRICTS = {
     { type: 'LABORATORY', count: 1 },
     { type: 'FIRE_STATION', count: 1 },
     { type: 'PHARMACY', count: 1 }, // floors can promote to CLINIC/HOSPITAL
+    { type: 'ISP', count: 1 },
+    { type: 'WATER_PLANT', count: 1 },
   ],
 
   MIN_DISTRICT_TILES: 16,

@@ -1,0 +1,261 @@
+# Lockdown 2030 — Big Bang Implementation Plan (V1)
+
+**Purpose:** Implement the full V1 gameplay contracts in one sweep (no slices, no partial demos).  
+**Authoritative rules:** `gamePlan/20_gameplay_contracts_v1.md` (this plan only orchestrates implementation).
+
+---
+
+## Definition of Done (V1 Big Bang)
+Big Bang is DONE when all are true:
+
+1) A game can be initialized and produces:
+   - `games/{gameId}` has world time fields (tick clock).
+   - `cells/*` exist for outside + inside floors.
+   - `edges/*` exist for doors + stairs.
+   - `districtState/*` exists for each district.
+
+2) Tick loop enforces contracts:
+   - AP/HP regen per tick with caps.
+   - hunger/hydration drains on schedule.
+   - working-water hydration refresh on schedule.
+   - downed state behaves exactly as contract.
+
+3) Actions enforce contracts end-to-end:
+   - MOVE (normal/overweight)
+   - SEARCH (1 roll, remaining--, hard stop at 0)
+   - ATTACK (melee/ranged AP, ammo usage, durability)
+   - REPAIR (toolkit-only until ~1/3 maxHp, then toolkit+part consumption)
+   - BARRICADE / DEBARRICADE / SECURE
+   - STAND_UP (10 AP → 10 HP, only when online/active)
+
+4) Combat contract is implemented:
+   - hit chance formula (skills + dodge + stress)
+   - damage variance
+   - armor flat mitigation
+   - barriers use same model (dodge=0)
+   - no crits
+
+5) District objective contract works:
+   - facilities flip utilities OFF at ruined=true or hp<=0
+   - restore loop works (zombie-free gate, repair hp to >=50%, then fixed infra action counts)
+
+6) Item rules enforced:
+   - stacking rules
+   - ammo packaging units
+   - durability loss triggers
+   - dropped item despawn after 24h (288 ticks)
+
+7) Multiplayer constraints enforced:
+   - PvP OFF
+   - looting other players OFF
+   - anyone can debarricade
+   - ISP gating for district chat/DMs (global always on)
+
+---
+
+## Big Bang Build Order (single implementation, done in this order)
+
+### 0) Lock Inputs + “No Drift” Guardrails
+**Goal:** eliminate mid-implementation re-decisions.
+
+- Confirm `20_gameplay_contracts_v1.md` is the law.
+- Add a “Contract version” stamp somewhere central (e.g. `V1_CONTRACT_VERSION = 1`), used in logs.
+
+**Done when:** everything below references the contract and NOT chat memory.
+
+---
+
+### 1) World Time + Tick Clock (foundation)
+**Goal:** one time source that everything else maps onto.
+
+Implement on `games/{gameId}`:
+- `tickIndex` (int)
+- `tickLenSeconds = 300`
+- `ticksPerDay = 288`
+- (optional) `worldStartAt`
+
+Tick pipeline must:
+- increment tickIndex deterministically
+
+**Done when:** you can run N ticks and the clock is stable and persisted.
+
+---
+
+### 2) Runtime World State (cells + edges + districtState)
+**Goal:** the whole world state exists in runtime collections, not just mapMeta.
+
+Implement:
+- `cells/c_{x}_{y}_{z}_{layer}`
+- `edges/e_{a...}__{b...}`
+- `districtState/{districtId}`
+
+Initialization (on init-game):
+- Outside cells: for full grid at z=0 layer=0
+- Inside cells: for building footprints for each floor (z=0..floors-1, layer=1)
+- Doors edges: outside<->inside at entry points (as you already do)
+- Stairs edges: between z and z±1 inside
+- districtState docs created for all district ids
+
+**Done when:** a fresh game has full cells/edges/districtState and nothing is “missing by assumption”.
+
+---
+
+### 3) Tick Systems (regen + meters + downed)
+**Goal:** core survival loop runs without any player actions.
+
+Implement tick effects from contract:
+- AP regen / HP regen with caps
+- hunger/hydration cadence:
+  - -1 per 72 ticks (6h)
+- working water refresh:
+  - +1 hydration per 12 ticks (1h) if inside + water available
+- downed logic:
+  - hp<=0 ⇒ isDowned=true
+  - regen still applies
+  - no auto-stand
+
+**Done when:** you can simulate 1 day and see meters + regen behave exactly.
+
+---
+
+### 4) Action System: AP Costs + State Mutation (the “verbs”)
+**Goal:** every contract action exists and spends AP correctly.
+
+Implement base AP cost table (from contract):
+- MOVE normal / overweight
+- SEARCH
+- ATTACK melee/ranged
+- REPAIR
+- BARRICADE / DEBARRICADE / SECURE
+- STAND_UP
+
+Action outcome must be fully deterministic and logged.
+
+**Done when:** each action validates AP, applies AP cost, mutates only allowed docs (cell/edge/player), and returns consistent responses.
+
+---
+
+### 5) Search + Loot (contract-complete, uses loot-tables.js)
+**Goal:** SEARCH is real gameplay, not a placeholder.
+
+Implement:
+- `cell.search.remaining` decrements
+- 1 roll per SEARCH
+- hard stop at 0
+- roll from `loot-tables.js` by building type
+- (Finder remains TODO switch, but plumbing exists)
+
+**Done when:** repeated SEARCH drains a cell and then stops; loot matches building tables.
+
+---
+
+### 6) Items: stacking, ammo packaging, durability, despawn
+**Goal:** item system behaves as contract says during real play.
+
+Implement:
+- which kinds stack vs not
+- ammo packaging units and ammo consumption on ranged attack
+- durability decrement triggers (melee/guns/armor/toolkit)
+- dropped items expire after 288 ticks
+
+**Done when:** you can attack and see ammo/durability change; dropped loot eventually despawns.
+
+---
+
+### 7) Combat Contract (numbers + formulas are live)
+**Goal:** weapons/armor/skills stop “floating”.
+
+Implement:
+- hit chance formula (skillRank + athletics dodge + stress penalty)
+- damage variance 0.85..1.15
+- armor flat reduction
+- barriers use same model (dodge=0)
+- no crits
+
+**Done when:** same attacker/target produces statistically reasonable distributions and respects stress/skills/armor.
+
+---
+
+### 8) Repairs Contract (toolkit-only window + parts after 1/3)
+**Goal:** repairs are predictable and gated correctly.
+
+Implement:
+- “toolkit-only until repaired hp reaches ~1/3 maxHp”
+- after threshold: each repair consumes toolkit durability + 1 part item
+- part mapping:
+  - FUSE_KIT for fuse
+  - PIPE_PATCH for water
+
+**Done when:** repairing from 0→threshold works with toolkit alone; beyond requires parts.
+
+---
+
+### 9) District Objectives Contract (flip-off + restore loop)
+**Goal:** district gameplay actually exists.
+
+Implement:
+- facility type mapping:
+  - TRANSFORMER_SUBSTATION → powerOn
+  - WATER_PLANT → waterOn
+  - RADIO_STATION (ISP gameplay name) → ispOn
+- flip-off rule:
+  - ruined==true OR hp<=0 turns it off
+- restore loop:
+  1) zombie-free gate
+  2) repair cell hp to >=50% toolkit-only
+  3) infra fixed action counts:
+     - power: 3 fuse actions with FUSE_KIT
+     - water: 3 water actions with PIPE_PATCH
+     - isp: 2 fuse actions with FUSE_KIT
+
+**Done when:** you can break a facility and watch district utilities flip OFF, then restore them deterministically.
+
+---
+
+### 10) Multiplayer Rules + ISP Effects
+**Goal:** remove ambiguity in player-to-player interactions.
+
+Implement:
+- PvP OFF
+- player looting OFF
+- debarricade allowed for anyone
+- chat gating:
+  - global ON
+  - district chat + DMs require ispOn for sender district
+
+**Done when:** server enforces it regardless of client.
+
+---
+
+### 11) Visibility Contract Support (server-side)
+**Goal:** client can render correctly without inventing rules.
+
+Implement server outputs that support:
+- fog-of-war OFF
+- “without interacting” view doesn’t leak exact HP
+- “on same cell” returns exact hp for relevant things
+
+**Done when:** responses include enough data to render integrity labels + exact HP only when allowed.
+
+---
+
+### 12) Endgame Stub Hook (no gameplay yet)
+**Goal:** avoid redesign later.
+
+Implement only a placeholder state:     
+- “Rescue Event” tracking fields (not mechanics)
+- condition placeholder: all districts utilities ON for 24h (or off for 24H, then zombies win)
+
+**Done when:** the state can be computed/recorded even if no UI yet.
+
+---
+
+## Notes (discipline rules)
+- No new “rules” invented during coding unless added to `20_gameplay_contracts_v1.md` first.
+- If a code decision is unclear, the default is: implement the simplest behavior that matches the contract.
+
+More notes because you are fucking THICK IN THE HEAD: What’s left for the big-bang pass is just making the rest of the repo agree with those same keys:
+	•	loot tables key: RADIO_STATION → ISP
+	•	map-gen/city-layout: any placement logic using RADIO_STATION → ISP
+	•	any client/UI labels / analytics / tests / enums that still say RADIO_STATION
+    DO THE ABOVE RADIO STATION TO ISP CHANGE ALSO in WHATEVER PASS WE ARE ON that touches any file with radtio station in it. NOW SHUT THE FUCK UP ABOUT

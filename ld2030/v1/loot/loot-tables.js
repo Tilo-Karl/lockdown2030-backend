@@ -302,7 +302,15 @@ const LOOT_TABLES = {
     W('WATER_BOTTLE', 6),
     W('CANNED_FOOD', 4),
   ],
+  
 };
+
+// Aliases for promoted building types (safe default tables)
+LOOT_TABLES.APARTMENT = LOOT_TABLES.HOUSE;
+LOOT_TABLES.HOTEL = LOOT_TABLES.MOTEL;
+LOOT_TABLES.UNIVERSITY = LOOT_TABLES.SCHOOL;
+LOOT_TABLES.CLINIC = LOOT_TABLES.PHARMACY;
+LOOT_TABLES.HOSPITAL = LOOT_TABLES.LABORATORY; // swap later if you want a richer hospital table
 
 function getWeightedLoot(buildingType) {
   const rows = LOOT_TABLES[buildingType] || [];

@@ -1,8 +1,8 @@
 # Lockdown 2030 — Master Plan (single source of truth)
 
 ## Current Phase
-**Phase:** 2 (Infra + Barriers + Skills scaffolding)
-**Backend status:** ✅ doors + stairs barricades + zombie tick interaction working
+**Phase:** 2 (Infra + Barriers + Skills scaffolding)  
+**Backend status:** ✅ doors + stairs barricades + zombie tick interaction working  
 **Next milestone (concrete):** Add **cells** runtime docs (x,y,z,layer) + per-cell infra (fuse/water/generator) + edge-barriers (doors/stairs) + zombie priority targeting + cell hp/ruin scaffold
 
 ## Locked Rules (do not debate later)
@@ -23,7 +23,7 @@
   - After class lock: class prereq skills can go R4+
   - Neutral skills can go to R6 for any class
 
-  ## "We're clear" checklist
+## "We’re clear" checklist
 - Human classes: Bruiser / Gunslinger / Scavenger / Warden / Medic
 - Prereqs: 2 skills @ R3 (no "2 of 3" system)
 - Neutral skills: Athletics + Brawling can go R6 for anyone
@@ -38,29 +38,89 @@
   - door edges typically connect outside<->inside at the same (x,y,z) today, but can support balcony/roof/escape doors later
   - stairs edges connect inside (layer=1) between z and z±1
 
-## Open TODO (ordered)
-1) **Cells + Edges runtime schema + reader/writer**:
+## Open TODO (ordered) 
+1) **Cells + Edges runtime schema + reader/writer**
    - `cells/c_{x}_{y}_{z}_{layer}` (terrain + type + hp/maxHp/ruined + per-cell infra + search depletion)
-   - `edges/e_{a...}__{b...}` (doors + stairs barricades)
-2) **New player actions** (mutate the current cell or a reachable edge from the current cell):
+   - `edges/e_{a...}__{b...}` (doors + stairs barricades) 
+
+2) **New player actions** (mutate the current cell or a reachable edge from the current cell)
    - repair_fuse, repair_water, install_generator, repair_generator
    - secure_door / barricade / debarricade / repair_door (edge-based)
    - barricade_stairs / debarricade_stairs / repair_stairs (edge-based)
-3) **Zombie tick**:
+3) **Zombie tick**
    - after player + barriers: hit blocking edge (door/stairs) on the current cell
    - then hit installed infra on the same cell (fuse/water/generator)
-4) **Noise/Groan map**:
+4) **Noise/Groan map**
    - write noise from actions + zombies; smart form uses it
-5) **Door repair + cell ruin**:
+5) **Door repair + cell ruin**
    - repair restores edge hp even when not destroyed
    - cells can be progressively ruined (design locked below)
+
+6) **Progression currency (LOCK/TODO)**
+   - Define: how skill ranks advance (kills yes; anti-grind rule TBD)
+   - Define: rank-up cost (per-rank or per-skill ladder)
+
+7) **Hunger / Hydration cadence (LOCK/TODO)**
+   - Define: when meters tick down (per tick vs per real 24h)
+   - Define: “working water auto-refresh each tick” as an exact meter increment
+
+8) **Stress mechanics (LOCK/TODO)**
+   - Define: number of stress levels
+   - Define: penalty curve (failure chance / roll penalty scaling)
+
+9) **District objectives contract (LOCK/TODO)**
+   - Define: what flips `districtState.powerOn/waterOn/ispOn` false (which facility cell(s), hp threshold)
+   - Define: restore loop (sequence + required items + number of actions)
+
+10) **Combat v1 placeholder (LOCK/TODO)**
+   - Define: hit chance vs dodge (Athletics influences dodge)
+   - Define: armor mitigation (simple flat/percent)
+   - Define: crits (none or simple)
+   - Define: weapon vs barrier uses same attack model (doors aren’t “athletic”)
+ 
+ - you better not ask me to define these things. MAKE THEM THE FUCK UP IN THE MOST SENSIBLE MANNER.
+
+### Locked v1 decisions captured from chat
+- **SEARCH**
+  - Authoritative rules live in **Search & Loot** (single copy below).
+
+- **Repairs (toolkit + parts)**
+  - Up to the first ~1/3 repair can be toolkit-only.
+  - After that, each repair action consumes:
+    - Toolkit durability **and**
+    - 1 consumable part item per action.
+  - Parts mapping (v1):
+    - `FUSE_KIT` repairs fuse boxes (1 per action)
+    - `PIPE_PATCH` repairs water mains (1 per action)
+
+- **Spawn rules (v1)**
+  - Keep current behavior: random spawn placement (as implemented today).
+
+- **0 HP / downed (v1)**
+  - At `hp <= 0`: player is downed.
+  - When the player is online again, they stand up by:
+    - Paying **10 AP** immediately, OR
+    - Waiting (tick regen) to stand up later.
+  - Stand-up state: return at **10 HP**.
+
+- **Carry / overweight (v1)**
+  - Base `actor.carryCap = 20`.
+  - If `carriedWeight > carryCap`: movement costs **2 AP**.
+  - If dropping backpack/cart makes you overweight: same rule until under cap.
+
+- **Survival meters (v1)**
+  - Hunger + hydration are simple meters that tick down.
+  - Stress is level-based; higher stress increases failure chance on rolls.
+  - When hunger/hydration hit 0: max stress (no death mechanics in v1).
+  - Only food/liquids restore hunger/hydration.
+  - If a player is in an inside cell with working water, they auto-refresh each tick.
 
 ---
 
 # Detailed Plan
 (Everything below is authoritative; update here, not in chat.)
 
-#  Skills
+# Skills
 DESIGN — Skills + Zombie Forms + Noise (Groan Map)
 
 1) Human skill system
@@ -173,7 +233,7 @@ Fields:
     •    noiseId (string)
     •    x (int), y (int), z (int)
     •    level (int) — current noise intensity
-    •    kind (string) — "groan" | "door_hit" | "stairs_hit" | "gunshot" | "combat" | "search" | ..."
+    •    kind (string) — "groan" | "door_hit" | "stairs_hit" | "gunshot" | "combat" | "search" | ...
     •    sourceId (string|null) — zombieId/playerId
     •    sourceType (string|null) — "ZOMBIE"|"PLAYER"
     •    updatedAt (timestamp)
@@ -337,6 +397,12 @@ Zombie/event actions (same targeting rules, same cell doc fields):
 - `BREAK_WATER`
 - `BREAK_GENERATOR`
 
+## Repair costs (locked v1)
+- First ~1/3 of the repair path can be done with toolkit only.
+- After that, each repair action consumes toolkit durability + 1 part item:
+  - `FUSE_KIT` repairs fuse boxes (1 per action)
+  - `PIPE_PATCH` repairs water mains (1 per action)
+
 ## Zombie targeting rules (locked priority order when on an inside cell)
 1) Player on same cell (matching layer)
 2) Blocking barrier edge (door edge for enter; stairs edge for floor change)
@@ -346,6 +412,8 @@ Zombie/event actions (same targeting rules, same cell doc fields):
 ---
 
 # Building Health & Ruin
+
+- In v1, `ruined=true` primarily kills utility: searching returns nothing (other effects later).
 
 ## Core rule (locked)
 - **There is no shared building HP across multiple tiles/floors.**
@@ -367,6 +435,14 @@ Zombie/event actions (same targeting rules, same cell doc fields):
 
 ## Current
 - Search depletion state lives on the cell: `cells/c_{x}_{y}_{z}_{layer}.search` (remaining/maxRemaining/searchedCount).
+
+## Search action rules (locked v1) ✅ (single authoritative copy)
+- Each SEARCH action = **1 roll**.
+- Each SEARCH action: `search.remaining -= 1`.
+- When `search.remaining == 0`: hard stop (“there’s nothing left to find”).
+- Finder modifier: TODO (pick exactly one later; not both):
+  - +1 extra roll
+  - reroll junk once
 
 ## Planned expansion
 - Loot tables depend on:
