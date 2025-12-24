@@ -1,176 +1,200 @@
-// ld2030/v1/init-game.js
-// Mounts POST /api/ld2030/v1/init-game
-// Big Bang V1: after writing mapMeta blueprint, initialize runtime world:
-// - games/{gameId}.tickIndex clock
-// - cells/* (outside + inside floors)
-// - edges/* (doors + stairs)
-// - districtState/*
+// ld2030/v1/world/edges.js
+// Runtime edges helpers + init writers (V1).
+//
+// POLICY (locked):
+// - Runtime edges store mutable runtime truth only.
+// - Max/base values are derived from server config (not persisted as max/base fields).
+// - Doors + stairs both use ONE barrier pool: edge.hp.
+//   - Door edge.hp = door barrier HP pool (door itself + any added barricade).
+//   - Stairs edge.hp = stairs barricade HP (NOT the stairs).
+// - Doors/stairs use e_* ids.
+// - Doors cannot be secured while open (enforced by services; init sets safe defaults).
 
-const { GRID, MAP, DOOR } = require('./config');
+function normEndpoint(p) {
+  return {
+    x: Number(p.x),
+    y: Number(p.y),
+    z: Number(p.z),
+    layer: Number(p.layer),
+  };
+}
 
-const { initWorldTimeDoc } = require('./world/world-time');
-const { cellIdFor, writeOutsideCells, writeInsideCells } = require('./world/cells');
-const { writeDoorEdges, writeStairsEdges } = require('./world/edges');
-const { writeDistrictStates } = require('./world/district-state');
+function endpointKey(p) {
+  return `${p.x}_${p.y}_${p.z}_${p.layer}`;
+}
 
-module.exports = function registerInitGame(app, { db, admin, state, base }) {
-  const BASE = base || '/api/ld2030/v1';
+function edgeIdFor(a, b) {
+  const A = normEndpoint(a);
+  const B = normEndpoint(b);
+  const ka = endpointKey(A);
+  const kb = endpointKey(B);
+  const left = ka <= kb ? A : B;
+  const right = ka <= kb ? B : A;
+  return `e_${endpointKey(left)}__${endpointKey(right)}`;
+}
+
+function iterBuildingTiles(building) {
+  if (!building) return [];
+
+  if (Array.isArray(building.tiles) && building.tiles.length) {
+    return building.tiles
+      .map((t) => ({ x: Number(t.x), y: Number(t.y) }))
+      .filter((t) => Number.isFinite(t.x) && Number.isFinite(t.y));
+  }
+
+  if (Array.isArray(building.footprint) && building.footprint.length) {
+    return building.footprint
+      .map((t) => ({ x: Number(t.x), y: Number(t.y) }))
+      .filter((t) => Number.isFinite(t.x) && Number.isFinite(t.y));
+  }
+
+  const x0 = Number(building.x);
+  const y0 = Number(building.y);
+  const w = Number(building.w);
+  const h = Number(building.h);
+  if ([x0, y0, w, h].every(Number.isFinite) && w > 0 && h > 0) {
+    const out = [];
+    for (let yy = y0; yy < y0 + h; yy++) {
+      for (let xx = x0; xx < x0 + w; xx++) out.push({ x: xx, y: yy });
+    }
+    return out;
+  }
+
+  return [];
+}
+
+async function writeDoorEdges({ db, admin, edgesCol, mapMeta, baseDoorHp }) {
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const buildings = Array.isArray(mapMeta?.buildings) ? mapMeta.buildings : [];
 
-  app.post(`${BASE}/init-game`, async (req, res) => {
-    try {
-      const {
-        gameId = 'lockdown2030',
-        mapId  = MAP.DEFAULT_ID,
-        w      = undefined,
-        h      = undefined,
-        seed   = Math.floor(Date.now() % 1_000_000_000),
-        force  = false,
-      } = req.body || {};
+  const baseHp = Number(baseDoorHp);
+  if (!Number.isFinite(baseHp) || baseHp <= 0) {
+    throw new Error(`writeDoorEdges: baseDoorHp must be a finite number > 0 (got: ${baseDoorHp})`);
+  }
 
-      // Decide final grid size
-      let width;
-      let height;
+  let batch = db.batch();
+  let ops = 0;
+  let written = 0;
 
-      if (typeof w === 'number' && typeof h === 'number') {
-        width = w;
-        height = h;
-      } else if (GRID.USE_RANDOM && typeof GRID.randomSize === 'function') {
-        const pick = GRID.randomSize();
-        width = pick.w;
-        height = pick.h;
-      } else {
-        width = GRID.DEFAULT_W;
-        height = GRID.DEFAULT_H;
-      }
+  async function commitIfFull() {
+    if (ops >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
 
-      if (!gameId || !mapId) {
-        return res.status(400).json({ ok: false, error: 'missing_ids' });
-      }
+  for (const b of buildings) {
+    const tiles = iterBuildingTiles(b);
+    for (const t of tiles) {
+      const outside = { x: t.x, y: t.y, z: 0, layer: 0 };
+      const inside = { x: t.x, y: t.y, z: 0, layer: 1 };
+      const id = edgeIdFor(outside, inside);
+      const ref = edgesCol.doc(id);
 
-      if (
-        width < GRID.MIN_W || height < GRID.MIN_H ||
-        width > GRID.MAX_W || height > GRID.MAX_H
-      ) {
-        return res.status(400).json({ ok: false, error: 'invalid_size' });
-      }
-
-      // 1) Write blueprint (mapMeta) via your existing state helper (allowed)
-      // NOTE: state.writeMapAndGame expects `_force`, not `force`.
-      await state.writeMapAndGame({
-        gameId,
-        mapId,
-        w: width,
-        h: height,
-        seed,
-        _force: force,
-      });
-
-      // 2) Load the freshly written mapMeta from game doc
-      const gameRef = (state && typeof state.gameRef === 'function')
-        ? state.gameRef(gameId)
-        : db.collection('games').doc(gameId);
-
-      const gSnap = await gameRef.get();
-      if (!gSnap.exists) {
-        return res.status(500).json({ ok: false, error: 'game_missing_after_init' });
-      }
-
-      const game = gSnap.data() || {};
-      const mapMeta = game.mapMeta || null;
-      if (!mapMeta) {
-        return res.status(500).json({ ok: false, error: 'mapMeta_missing_after_init' });
-      }
-
-      // 3) Write world time clock to games/{gameId}
-      await gameRef.set(
+      batch.set(
+        ref,
         {
-          ...initWorldTimeDoc(),
-          worldStartAt: serverTs(),
+          edgeId: id,
+          a: outside,
+          b: inside,
+          kind: "door",
+
+          // Optional denorm for fast queries/debug (not gameplay truth).
+          x: t.x,
+          y: t.y,
+
+          outsideCellId: `c_${t.x}_${t.y}_0_0`,
+          insideCellId: `c_${t.x}_${t.y}_0_1`,
+
+          // Door state (runtime truth)
+          isOpen: false,
+          isSecured: false,
+
+          // Single barrier pool (runtime truth)
+          hp: baseHp,
+
+          createdAt: serverTs(),
           updatedAt: serverTs(),
         },
         { merge: true }
       );
 
-      // 4) Runtime collections
-      const cellsCol = gameRef.collection('cells');
-      const edgesCol = gameRef.collection('edges');
-      const districtStateCol = gameRef.collection('districtState');
-
-      // 5) Cells (outside + inside floors)
-      const outside = await writeOutsideCells({
-        db,
-        admin,
-        cellsCol,
-        w: width,
-        h: height,
-        mapMeta,
-      });
-
-      const inside = await writeInsideCells({
-        db,
-        admin,
-        cellsCol,
-        mapMeta,
-      });
-
-      // 6) Edges (doors + stairs)
-      const doors = await writeDoorEdges({
-        db,
-        admin,
-        edgesCol,
-        mapMeta,
-        baseDoorHp: DOOR.BASE_HP,
-      });
-
-      const stairs = await writeStairsEdges({
-        db,
-        admin,
-        edgesCol,
-        mapMeta,
-      });
-
-      // 7) districtState (utilities + facility cell ids)
-      const districts = await writeDistrictStates({
-        db,
-        admin,
-        districtStateCol,
-        mapMeta,
-        cellIdFor,
-      });
-
-      console.log(
-        `[init-game] '${gameId}' initialized (${width}x${height}) mapId=${mapId} ` +
-        `cells(out=${outside.written}, in=${inside.written}) edges(door=${doors.written}, stairs=${stairs.written}) ` +
-        `districtState=${districts.written}`
-      );
-
-      return res.json({
-        ok: true,
-        gameId,
-        mapId,
-        w: width,
-        h: height,
-        seed,
-        runtime: {
-          cellsOutside: outside.written,
-          cellsInside: inside.written,
-          edgesDoors: doors.written,
-          edgesStairs: stairs.written,
-          districtState: districts.written,
-        },
-      });
-
-    } catch (e) {
-      // Always return real error details for debugging.
-      console.error('init-game error', e);
-      return res.status(500).json({
-        ok: false,
-        error: 'internal',
-        name: String(e?.name || ''),
-        message: String(e?.message || e),
-        stack: String(e?.stack || ''),
-      });
+      ops++;
+      written++;
+      await commitIfFull();
     }
-  });
+  }
+
+  if (ops > 0) await batch.commit();
+  return { written };
+}
+
+async function writeStairsEdges({ db, admin, edgesCol, mapMeta }) {
+  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const buildings = Array.isArray(mapMeta?.buildings) ? mapMeta.buildings : [];
+
+  let batch = db.batch();
+  let ops = 0;
+  let written = 0;
+
+  async function commitIfFull() {
+    if (ops >= 450) {
+      await batch.commit();
+      batch = db.batch();
+      ops = 0;
+    }
+  }
+
+  for (const b of buildings) {
+    const tiles = iterBuildingTiles(b);
+    const floors = Number.isFinite(b.floors) ? Math.max(1, Math.floor(b.floors)) : 1;
+    if (floors <= 1) continue;
+
+    for (let z = 0; z < floors - 1; z++) {
+      for (const t of tiles) {
+        const a = { x: t.x, y: t.y, z, layer: 1 };
+        const bb = { x: t.x, y: t.y, z: z + 1, layer: 1 };
+        const id = edgeIdFor(a, bb);
+        const ref = edgesCol.doc(id);
+
+        batch.set(
+          ref,
+          {
+            edgeId: id,
+            a,
+            b: bb,
+            kind: "stairs",
+
+            // Optional denorm for debug (not gameplay truth).
+            x: t.x,
+            y: t.y,
+            zLo: z,
+            zHi: z + 1,
+
+            // Single barrier pool for stairs barricade:
+            // hp==0 means "no barricade installed" (passable).
+            hp: 0,
+
+            createdAt: serverTs(),
+            updatedAt: serverTs(),
+          },
+          { merge: true }
+        );
+
+        ops++;
+        written++;
+        await commitIfFull();
+      }
+    }
+  }
+
+  if (ops > 0) await batch.commit();
+  return { written };
+}
+
+module.exports = {
+  edgeIdFor,
+  writeDoorEdges,
+  writeStairsEdges,
 };
