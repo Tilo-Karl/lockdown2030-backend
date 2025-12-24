@@ -1,5 +1,13 @@
 // ld2030/v1/engine/state-writer-search.js
-// Transactional search: spend AP + mutate spot progress + (later) spawn loot.
+// Transactional SEARCH (Big Bang V1 only):
+// - spend AP
+// - decrement cell.search.remaining (hard stop at 0)
+// - (later) spawn loot
+//
+// BIG BANG V1 COMPLIANCE:
+// - actor.pos is ALWAYS { x, y, z, layer } where layer ∈ {0,1}
+// - NO legacy isInsideBuilding (layer is the truth)
+// - SEARCH is inside-only (layer=1)
 
 module.exports = function makeSearchStateWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-search: db is required');
@@ -8,109 +16,149 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
 
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  function spotIdFor({ inside, x, y, z }) {
-    const prefix = inside ? 'i' : 'o';
-    return `${prefix}_${x}_${y}_${z}`;
+  function gameRef(gameId) {
+    return (state && typeof state.gameRef === 'function')
+      ? state.gameRef(gameId)
+      : db.collection('games').doc(String(gameId));
   }
 
-  async function ensureCreatedAtTx(tx, ref) {
-    const snap = await tx.get(ref);
-    if (!snap.exists) {
-      tx.set(ref, { createdAt: serverTs() }, { merge: true });
-      return;
-    }
-    const data = snap.data() || {};
-    if (data.createdAt == null) tx.set(ref, { createdAt: serverTs() }, { merge: true });
+  function cellsCol(gameId) {
+    if (typeof state.cellsCol === 'function') return state.cellsCol(gameId);
+    return gameRef(gameId).collection('cells');
   }
 
-  async function searchSpot({ gameId, uid, apCost = 1, spot }) {
-    if (!gameId) throw new Error('searchSpot: missing_gameId');
-    if (!uid) throw new Error('searchSpot: missing_uid');
-    if (!spot) throw new Error('searchSpot: missing_spot');
+  function parseCellId(cellId) {
+    const m = /^c_(-?\d+)_(-?\d+)_(-?\d+)_(\d+)$/.exec(String(cellId || ''));
+    if (!m) return null;
 
-    const x = Number(spot.x);
-    const y = Number(spot.y);
-    const z = Number(spot.z);
-    const inside = spot.inside === true;
+    const x = Number(m[1]);
+    const y = Number(m[2]);
+    const z = Number(m[3]);
+    const layer = Number(m[4]);
 
-    if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) {
-      throw new Error('searchSpot: invalid_spot_coords');
-    }
+    if (![x, y, z, layer].every(Number.isFinite)) return null;
+    if (layer !== 0 && layer !== 1) return null;
 
-    const playerRef = state.playersCol(gameId).doc(uid);
-    const spotsCol = state.spotsCol(gameId);
-    const sId = spotIdFor({ inside, x, y, z });
-    const spotRef = spotsCol.doc(sId);
+    return { x, y, z, layer };
+  }
 
-    const result = await db.runTransaction(async (tx) => {
-      await ensureCreatedAtTx(tx, playerRef);
-      await ensureCreatedAtTx(tx, spotRef);
+  function nIntStrict(x, tag) {
+    const v = Number(x);
+    if (!Number.isFinite(v)) throw new Error(tag);
+    return Math.trunc(v);
+  }
 
+  function requirePosStrict(actor, tag) {
+    const p = actor?.pos;
+    if (!p || typeof p !== 'object') throw new Error(`${tag}: missing_pos`);
+    const x = nIntStrict(p.x, `${tag}: pos_x_invalid`);
+    const y = nIntStrict(p.y, `${tag}: pos_y_invalid`);
+    const z = nIntStrict(p.z, `${tag}: pos_z_invalid`);
+    const layer = nIntStrict(p.layer, `${tag}: pos_layer_invalid`);
+    if (layer !== 0 && layer !== 1) throw new Error(`${tag}: pos_layer_invalid`);
+    return { x, y, z, layer };
+  }
+
+  function metaPatchForSnap(snap) {
+    const ts = serverTs();
+    const cur = snap.exists ? (snap.data() || {}) : {};
+    const meta = { updatedAt: ts };
+    if (!snap.exists || cur.createdAt == null) meta.createdAt = ts;
+    return meta;
+  }
+
+  async function searchCell({
+    gameId,
+    uid, // player id (search is player-only in this writer)
+    cellId,
+    apCost = 1,
+    defaultMaxRemaining = 3,
+  }) {
+    if (!gameId) throw new Error('searchCell: missing_gameId');
+    if (!uid) throw new Error('searchCell: missing_uid');
+    if (!cellId) throw new Error('searchCell: missing_cellId');
+
+    const parsed = parseCellId(cellId);
+    if (!parsed) throw new Error('searchCell: invalid_cellId');
+
+    const { x, y, z, layer } = parsed;
+
+    // Big Bang search rule: must be inside (layer=1)
+    if (layer !== 1) throw new Error('searchCell: must_be_inside');
+
+    const id = String(cellId);
+    const playerRef = state.playersCol(gameId).doc(String(uid));
+    const cellRef = cellsCol(gameId).doc(id);
+
+    const cost = Number.isFinite(apCost) ? Math.max(1, Math.trunc(apCost)) : 1;
+
+    return db.runTransaction(async (tx) => {
       const pSnap = await tx.get(playerRef);
-      if (!pSnap.exists) throw new Error('searchSpot: player_not_found');
+      if (!pSnap.exists) throw new Error('searchCell: player_not_found');
       const player = pSnap.data() || {};
 
-      // hard requirement
-      if (player.isInsideBuilding !== true) throw new Error('searchSpot: must_be_inside_building');
+      const cSnap = await tx.get(cellRef);
+      const cell = cSnap.exists ? (cSnap.data() || {}) : {};
 
-      // must match current player location
-      const p = player.pos || {};
-      const px = Number(p.x);
-      const py = Number(p.y);
-      const pz = Number(p.z ?? 0);
-
-      if (px !== x || py !== y || pz !== z) throw new Error('searchSpot: not_at_spot');
+      // Strict same-cell rule: (x,y,z,layer) must match exactly.
+      const ppos = requirePosStrict(player, 'searchCell');
+      if (ppos.x !== x || ppos.y !== y || ppos.z !== z || ppos.layer !== layer) {
+        throw new Error('searchCell: not_at_cell');
+      }
 
       // AP spend
       const curAp = Number.isFinite(player.currentAp) ? player.currentAp : 0;
-      const cost = Number.isFinite(apCost) ? apCost : 1;
-      if (curAp < cost) throw new Error('searchSpot: not_enough_ap');
+      if (curAp < cost) throw new Error('searchCell: not_enough_ap');
+      const nextAp = Math.max(0, curAp - cost);
 
-      // Spot progress (per-tile/per-floor)
-      const sSnap = await tx.get(spotRef);
-      const s = sSnap.exists ? (sSnap.data() || {}) : {};
-      const remaining = Number.isFinite(s.remaining) ? s.remaining : 3; // default “search points” per spot
-      if (remaining <= 0) throw new Error('searchSpot: spot_depleted');
+      // Cell search progress
+      const search = (cell.search && typeof cell.search === 'object') ? cell.search : {};
+      const maxRemaining =
+        Number.isFinite(search.maxRemaining) ? search.maxRemaining : defaultMaxRemaining;
+
+      const remainingRaw =
+        Number.isFinite(search.remaining) ? search.remaining : maxRemaining;
+
+      const remaining = Math.trunc(remainingRaw);
+      if (remaining <= 0) throw new Error('searchCell: cell_depleted');
 
       const nextRemaining = Math.max(0, remaining - 1);
+      const nextCount = (Number.isFinite(search.searchedCount) ? search.searchedCount : 0) + 1;
+
+      const pMeta = metaPatchForSnap(pSnap);
+      const cMeta = metaPatchForSnap(cSnap);
+
+      tx.set(playerRef, { currentAp: nextAp, ...pMeta }, { merge: true });
 
       tx.set(
-        spotRef,
+        cellRef,
         {
-          inside,
-          x,
-          y,
-          z,
-          remaining: nextRemaining,
-          updatedAt: serverTs(),
+          cellId: id,
+          search: {
+            ...search,
+            maxRemaining,
+            remaining: nextRemaining,
+            searchedCount: nextCount,
+          },
+          ...cMeta,
         },
         { merge: true }
       );
-
-      tx.set(
-        playerRef,
-        {
-          currentAp: Math.max(0, curAp - cost),
-          updatedAt: serverTs(),
-        },
-        { merge: true }
-      );
-
-      // Loot spawning will go here (items at same {x,y,z} + inside flag),
-      // but you wanted backend first: progress + AP is the backbone.
 
       return {
         ok: true,
-        spotId: sId,
-        spot: { inside, x, y, z },
+        cellId: id,
+        pos: { x, y, z, layer },
         apCost: cost,
-        currentAp: Math.max(0, curAp - cost),
+        currentAp: nextAp,
         remaining: nextRemaining,
+        maxRemaining,
       };
     });
-
-    return result;
   }
 
-  return { searchSpot };
+  return {
+    searchCell,
+    searchSpot: searchCell,
+  };
 };

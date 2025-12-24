@@ -1,23 +1,29 @@
 // ld2030/v1/actions/enter-building.js
 // POST /enter-building
-// Explicit action: toggles player into "inside building" state (and ensures z=0 if missing).
-// Validation + AP spend happens inside engine/router.
+// Uses action-router helpers (not engine.processAction).
 
-module.exports = function registerEnterBuilding(app, { engine, base }) {
+module.exports = function registerEnterBuilding(app, { actions, base } = {}) {
   if (!app) throw new Error('enter-building: app is required');
-  if (!engine || !engine.router) throw new Error('enter-building: engine.router is required');
-  if (!base) throw new Error('enter-building: base is required');
+  if (!actions || typeof actions.handleEnterBuilding !== 'function') {
+    throw new Error('enter-building: actions.handleEnterBuilding is required');
+  }
 
-  app.post(`${base}/enter-building`, async (req, res) => {
+  const BASE = String(base || '').trim();
+  if (!BASE) throw new Error('enter-building: base is required');
+
+  app.post(`${BASE}/enter-building`, async (req, res) => {
     try {
-      const { uid, gameId = 'lockdown2030' } = req.body || {};
-      if (!uid) return res.status(400).json({ ok: false, error: 'missing_uid' });
+      const body = req.body || {};
+      const uid = String(body.uid || '').trim();
+      const gameId = String(body.gameId || 'lockdown2030').trim();
 
-      const result = await engine.router.handleEnterBuilding({ uid, gameId });
+      if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+
+      const result = await actions.handleEnterBuilding({ uid, gameId });
       return res.json(result);
     } catch (e) {
       console.error('enter-building error', e);
-      return res.status(400).json({ ok: false, error: String(e.message || 'enter_failed') });
+      return res.status(400).json({ ok: false, error: String(e?.message || 'enter_building_failed') });
     }
   });
 };

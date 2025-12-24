@@ -1,33 +1,29 @@
-// ld2030/v1/config/config-tick.js
 // Centralised tick-related tuning for Lockdown2030.
 // Pure data: no requires, just knobs.
 
 module.exports = {
-  // How often the main game tick should run, in milliseconds.
-  TICK_INTERVAL_MS: 60 * 1000, // 60s
+  // Scheduler cadence: contract tick length is 5 minutes.
+  // (This is the interval your runner should call tickGame.)
+  TICK_INTERVAL_MS: 5 * 60 * 1000, // 300s
 
-  // ------------------------
-  // Player AP / HP regeneration
-  // ------------------------
-  PLAYER: {
-    // How many AP a player regains per tick.
-    AP_REGEN_PER_TICK: 1,
-    // Hard cap on AP so they can’t stockpile forever.
-    // Set to 3 to match your current START_AP.
-    MAX_AP: 3,
-    // Optional future knobs:
-    // HP_REGEN_PER_TICK: 0,
+  // V1 constants that tick modules read (values match contracts).
+  METERS: {
+    DRAIN_EVERY_TICKS: 72,              // 6 hours
+    HYDRATION_REFRESH_EVERY_TICKS: 12,  // 1 hour (inside + water available)
+    METER_MAX: 4,
+    STRESS_MAX: 4,
   },
 
-  // ------------------------
-  // Zombies
-  // ------------------------
+  PLAYER: {
+    AP_REGEN_PER_TICK: 1,
+    HP_REGEN_PER_TICK: 2,
+    MAX_AP: 3,
+    MAX_HP: 100,
+  },
+
+  // Zombies: keep keys that existing tick modules actually read.
   ZOMBIE: {
-    // How many tiles a zombie is allowed to move per tick.
-    MAX_MOVES_PER_TICK: 1,
-    // Radius (in tiles) within which zombies start caring about a player.
-    AGGRO_RADIUS: 4,
-    // Max wander distance for idle zombies if you later add that logic.
-    WANDER_RADIUS: 6,
+    ROAM: 1,
+    STAIRS_CHANCE: 0.25,
   },
 };

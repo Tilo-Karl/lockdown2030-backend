@@ -176,7 +176,7 @@ Implement:
 
 ---
 
-### 8) Repairs Contract (toolkit-only window + parts after 1/3)
+### 8) Repairs Contract (toolkit-only window + parts after ~50%)
 **Goal:** repairs are predictable and gated correctly.
 
 Implement:
@@ -194,10 +194,10 @@ Implement:
 **Goal:** district gameplay actually exists.
 
 Implement:
-- facility type mapping:
+- facility type mapping (building type keys):
   - TRANSFORMER_SUBSTATION → powerOn
   - WATER_PLANT → waterOn
-  - RADIO_STATION (ISP gameplay name) → ispOn
+  - ISP → ispOn
 - flip-off rule:
   - ruined==true OR hp<=0 turns it off
 - restore loop:

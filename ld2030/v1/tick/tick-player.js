@@ -1,48 +1,44 @@
 // ld2030/v1/tick/tick-player.js
-// Per-player tick logic (AP regen, etc.) used by the TickEngine.
+// Per-player tick logic (regen + meters + downed rules) used by the TickEngine.
 
 const { TICK } = require('../config');
 const { resolveEntityKey } = require('../entity/resolver');
 const { getEntityConfig } = require('../entity/registry');
 
-// Resolve player defaults from entity system (type=HUMAN, kind=PLAYER)
 const PLAYER_KEY = resolveEntityKey('HUMAN', 'PLAYER');
 const PLAYER_TPL = (PLAYER_KEY && getEntityConfig(PLAYER_KEY)) || {};
 
 const PLAYER = {
-  // Templates define caps; runtime docs store currentHp/currentAp.
   MAX_HP: Number.isFinite(PLAYER_TPL.maxHp) ? Number(PLAYER_TPL.maxHp) : 100,
   MAX_AP: Number.isFinite(PLAYER_TPL.maxAp) ? Number(PLAYER_TPL.maxAp) : 3,
 
-  // Starting values only used if current values are missing/invalid.
   START_HP: Number.isFinite(PLAYER_TPL.maxHp) ? Number(PLAYER_TPL.maxHp) : 100,
   START_AP: Number.isFinite(PLAYER_TPL.maxAp) ? Number(PLAYER_TPL.maxAp) : 3,
 };
 
-/**
- * Factory for player tick logic.
- *
- * @param {object} deps
- * @param {object} deps.reader - State reader (must expose playersCol(gameId)).
- * @param {object} deps.writer - State writer (must expose updatePlayer(gameId, uid, data)).
- */
+function clampInt(v, lo, hi, fallback) {
+  const x = Number(v);
+  if (!Number.isFinite(x)) return fallback;
+  const t = Math.trunc(x);
+  return Math.max(lo, Math.min(hi, t));
+}
+
 function makePlayerTicker({ reader, writer }) {
   if (!reader) throw new Error('makePlayerTicker: reader is required');
   if (!writer) throw new Error('makePlayerTicker: writer is required');
 
-  const apRegen = Number(TICK?.PLAYER?.AP_REGEN_PER_TICK ?? 1);
-  const maxAp = Number.isFinite(PLAYER.MAX_AP) ? Number(PLAYER.MAX_AP) : 3;
+  // Contracts (defaults match your Big Bang doc)
+  const apRegen = Number.isFinite(Number(TICK?.PLAYER?.AP_REGEN_PER_TICK)) ? Number(TICK.PLAYER.AP_REGEN_PER_TICK) : 1;
+  const hpRegen = Number.isFinite(Number(TICK?.PLAYER?.HP_REGEN_PER_TICK)) ? Number(TICK.PLAYER.HP_REGEN_PER_TICK) : 2;
 
-  const hpRegen = Number(TICK?.PLAYER?.HP_REGEN_PER_TICK ?? 1);
+  const maxAp = Number.isFinite(PLAYER.MAX_AP) ? Number(PLAYER.MAX_AP) : 3;
   const maxHp = Number.isFinite(PLAYER.MAX_HP) ? Number(PLAYER.MAX_HP) : 100;
 
-  /**
-   * Apply one tick of player logic for all players in a game.
-   *
-   * - Regens currentAp/currentHp for alive players up to MAX_AP and MAX_HP.
-   * - Skips dead players (alive === false).
-   */
-  async function tickPlayer({ gameId = 'lockdown2030', now } = {}) {
+  const DRAIN_EVERY = Number.isFinite(Number(TICK?.METERS?.DRAIN_EVERY_TICKS)) ? Number(TICK.METERS.DRAIN_EVERY_TICKS) : 72;
+  const METER_MAX = 4;
+  const STRESS_MAX = 4;
+
+  async function tickPlayer({ gameId = 'lockdown2030', now, tickIndex } = {}) {
     if (!gameId) throw new Error('tickPlayer: gameId is required');
 
     const col = reader.playersCol(gameId);
@@ -52,6 +48,8 @@ function makePlayerTicker({ reader, writer }) {
       return { updated: 0, total: 0, playersUpdated: 0, playersTotal: 0 };
     }
 
+    const doDrain = Number.isFinite(tickIndex) && tickIndex > 0 && (tickIndex % DRAIN_EVERY === 0);
+
     const updates = [];
     let updatedCount = 0;
 
@@ -59,38 +57,67 @@ function makePlayerTicker({ reader, writer }) {
       const uid = doc.id;
       const data = doc.data() || {};
 
-      // Skip special docs like logs or metadata
       if (!uid || uid.startsWith('_')) return;
-
-      const alive = data.alive !== false;
-      if (!alive) return;
+      if (data.alive === false) return;
 
       const patch = {};
 
-      const curApRaw = data.currentAp;
-      const curAp = Number.isFinite(curApRaw) ? Number(curApRaw) : Number(PLAYER.START_AP ?? 0);
-
+      // --- AP regen (cap 3)
+      const curAp = Number.isFinite(data.currentAp) ? Number(data.currentAp) : Number(PLAYER.START_AP ?? 0);
       if (apRegen > 0 && curAp < maxAp) {
         const nextAp = Math.min(maxAp, curAp + apRegen);
         if (nextAp !== curAp) patch.currentAp = nextAp;
       }
 
-      const curHpRaw = data.currentHp;
-      const curHp = Number.isFinite(curHpRaw) ? Number(curHpRaw) : Number(PLAYER.START_HP ?? 0);
-
+      // --- HP regen (cap 100) : contract says +2/tick
+      const curHp = Number.isFinite(data.currentHp) ? Number(data.currentHp) : Number(PLAYER.START_HP ?? 0);
       if (hpRegen > 0 && curHp < maxHp) {
         const nextHp = Math.min(maxHp, curHp + hpRegen);
         if (nextHp !== curHp) patch.currentHp = nextHp;
       }
 
+      // --- Downed rule (locked):
+      // hp<=0 => isDowned=true, set downedAt once; NEVER auto-clear isDowned here.
+      const hpForDownedCheck = Number.isFinite(patch.currentHp) ? Number(patch.currentHp) : curHp;
+      const wasDowned = data.isDowned === true;
+
+      if (hpForDownedCheck <= 0) {
+        if (!wasDowned) {
+          patch.isDowned = true;
+          if (!data.downedAt) patch.downedAt = now || new Date().toISOString();
+        }
+      } else {
+        if (wasDowned) {
+          // stay downed until stand-up action (NO auto-stand)
+        }
+      }
+
+      // --- Meters (locked v1):
+      // Hunger/Hydration are 0..4; drain -1 every 72 ticks.
+      let hunger = clampInt(data.hunger, 0, METER_MAX, METER_MAX);
+      let hydration = clampInt(data.hydration, 0, METER_MAX, METER_MAX);
+      let stress = clampInt(data.stress, 0, STRESS_MAX, 0);
+
+      if (doDrain) {
+        const nextHunger = Math.max(0, hunger - 1);
+        const nextHydration = Math.max(0, hydration - 1);
+        if (nextHunger !== hunger) patch.hunger = nextHunger;
+        if (nextHydration !== hydration) patch.hydration = nextHydration;
+        hunger = nextHunger;
+        hydration = nextHydration;
+      }
+
+      // Stress maxes if either hunger or hydration is 0 (no death)
+      const effectiveHunger = Number.isFinite(patch.hunger) ? patch.hunger : hunger;
+      const effectiveHydration = Number.isFinite(patch.hydration) ? patch.hydration : hydration;
+
+      if (effectiveHunger === 0 || effectiveHydration === 0) {
+        if (stress !== STRESS_MAX) patch.stress = STRESS_MAX;
+      }
+
       if (Object.keys(patch).length > 0) {
         updatedCount += 1;
-        updates.push(
-          writer.updatePlayer(gameId, uid, {
-            ...patch,
-            updatedAt: now || new Date().toISOString(),
-          })
-        );
+        updates.push(writer.updatePlayer(gameId, uid, patch));
       }
     });
 
@@ -103,6 +130,9 @@ function makePlayerTicker({ reader, writer }) {
       total: snap.size,
       playersUpdated: updatedCount,
       playersTotal: snap.size,
+      tickIndex: Number.isFinite(tickIndex) ? tickIndex : null,
+      didDrain: doDrain,
+      drainEveryTicks: DRAIN_EVERY,
     };
   }
 

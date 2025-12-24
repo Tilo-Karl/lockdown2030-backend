@@ -1,4 +1,5 @@
-// ld2030/v1/state-spawn.js — spawn zombies, humans and items for a new game
+// ld2030/v1/state-spawn.js
+// Spawn zombies, humans and items for a new game.
 
 const { ZOMBIE } = require('./config/config-game');
 
@@ -10,8 +11,7 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
   const width = rows[0]?.length || 0;
   if (width <= 0 || height <= 0) return;
 
-  // This comes from your game doc: games/{gameId}.mapMeta.tileMeta
-  // (written by state.js from config-tile)
+  // Comes from games/{gameId}.mapMeta.tileMeta
   const tileMeta = mapMeta.tileMeta || {};
 
   function canSpawnZombieOn(ch) {
@@ -67,8 +67,6 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-
-    // Spawn rule: respect tileMeta (NOT movement blocking; just spawn allowed)
     if (!canSpawnZombieOn(ch)) continue;
 
     zombieSpawns.push({ x, y, kind: pickZombieKind() });
@@ -110,8 +108,6 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-
-    // Spawn rule: respect tileMeta spawn rules
     if (!canSpawnHumanOn(ch)) continue;
 
     humanSpawns.push({ x, y, kind: pickHumanKind() });
@@ -170,8 +166,6 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
     if (!row) continue;
 
     const ch = row.charAt(x);
-
-    // Spawn rule: respect tileMeta spawn rules
     if (!canSpawnItemOn(ch)) continue;
 
     itemSpawns.push({ x, y, kind: pickItemKind() });

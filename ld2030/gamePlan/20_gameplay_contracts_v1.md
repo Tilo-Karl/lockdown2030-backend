@@ -125,10 +125,10 @@ Barriers vs actors (locked):
 
 ## 8) Repairs contract (toolkit + parts) — V1
 Toolkit-only window (locked):
-- Toolkit-only repair is allowed until the repaired object reaches **~1/3 of its maxHp**.
-  - Example: if `maxHp = 50`, toolkit-only can get it up to ~`16` hp.
+- Toolkit-only repair is allowed until the repaired object reaches **~50%, not a hard rule, of its maxHp**.
+  - Example: if `maxHp = 50`, toolkit-only can get it up to ~`25` hp.
 
-After 1/3 threshold (locked):
+After ~50% threshold (locked):
 - Each repair action consumes:
   - toolkit durability AND
   - 1 part item per action
@@ -145,7 +145,7 @@ Facility restore action counts are defined in District Objectives below.
 Facility per district (locked):
 - Power: `TRANSFORMER_SUBSTATION`
 - Water: `WATER_PLANT` (add building type for this concept)
-- ISP: `RADIO_STATION` is the config key, but gameplay name is **ISP**
+- ISP: `ISP` is the config key, but gameplay name is **ISP** ISP WAS radio_station before, change it where we find it.
 
 Flip OFF rule (locked):
 - Utility flips OFF if the district facility cell has:

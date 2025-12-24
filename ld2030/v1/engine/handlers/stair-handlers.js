@@ -1,138 +1,140 @@
+// ld2030/v1/engine/handlers/stair-handlers.js
 // Stair barricade action handlers (barricade/debarricade).
-// Edge is per-building between floors.
+// Persists ONLY runtime truth via edges/*.
+// AP + edge write are ATOMIC via writer.updateActorAndEdgeAtomic.
 
-const { STAIRS } = require('../../config/config-stairs');
-const { getBuildingIndex } = require('../building-index');
+const { apCostFor, ensureActorHasAp } = require('../../actions/ap-service');
+const { requireInside, requireDzPlusMinus1, cellIdFor } = require('../../actions/validators');
 const { makeStairService } = require('../stair-service');
+const { integrityLabel } = require('../integrity');
+
+function nInt(x, fallback = 0) {
+  const v = Number(x);
+  return Number.isFinite(v) ? Math.trunc(v) : fallback;
+}
 
 function makeStairHandlers({ reader, writer, stairService: stairServiceIn }) {
   if (!reader) throw new Error('stair-handlers: reader is required');
   if (!writer) throw new Error('stair-handlers: writer is required');
+  if (typeof writer.updateActorAndEdgeAtomic !== 'function') {
+    throw new Error('stair-handlers: writer.updateActorAndEdgeAtomic is required');
+  }
 
   const stairService = stairServiceIn || makeStairService({ reader });
 
-  function requireInside(actor, tag) {
-    if (actor?.isInsideBuilding !== true) throw new Error(`${tag}: must_be_inside_building`);
-  }
-
   function requireValidXYZ(actor, tag) {
     const pos = actor?.pos || {};
-    const x = Number(pos.x);
-    const y = Number(pos.y);
-    const z = Number.isFinite(pos.z) ? Number(pos.z) : 0;
+    const x = nInt(pos.x, NaN);
+    const y = nInt(pos.y, NaN);
+    const z = nInt(pos.z, NaN);
     if (!Number.isFinite(x) || !Number.isFinite(y) || !Number.isFinite(z)) throw new Error(`${tag}: invalid_pos`);
     return { x, y, z };
   }
 
-  function requireStep(dz, tag) {
-    const step = Number(dz);
-    if (!Number.isFinite(step) || (step !== 1 && step !== -1)) throw new Error(`${tag}: dz_must_be_plus_or_minus_1`);
-    return step;
+  function decorateForResponse(e) {
+    const maxHp = stairService.maxHpForLevel(e.barricadeLevel);
+    const label = integrityLabel({ hp: e.hp, maxHp });
+    return { ...e, maxHp, integrity: label };
   }
 
-  function requireOnBuildingTile(byXY, x, y, tag) {
-    const id = byXY.get(`${x},${y}`) || null;
-    if (!id) throw new Error(`${tag}: not_on_building_tile`);
-    return id;
+  async function assertCellsExist(gameId, x, y, zA, zB, tag) {
+    const a = await reader.getCell(gameId, cellIdFor(x, y, zA, 1));
+    if (!a) throw new Error(`${tag}: inside_cell_missing`);
+    const b = await reader.getCell(gameId, cellIdFor(x, y, zB, 1));
+    if (!b) throw new Error(`${tag}: floor_out_of_range`);
   }
 
-  async function loadGameActorAndIndex({ gameId, uid, tag }) {
-    const game = await reader.getGame(gameId);
-    if (!game) throw new Error(`${tag}: game_not_found`);
+  async function persistStairsEdgeAtomic({ gameId, uid, actor, apCost, edge }) {
+    const { nextAp } = ensureActorHasAp(actor, apCost, 'AP');
+    const actorPatch = (actor?.isPlayer === true) ? { currentAp: nextAp } : {};
 
-    const actor = await reader.getPlayer(gameId, uid);
-    if (!actor) throw new Error(`${tag}: actor_not_found`);
+    const edgePatch = {
+      kind: 'stairs',
+      // edgeId enforced by writer
+      a: edge.a,
+      b: edge.b,
+      x: Number(edge.x),
+      y: Number(edge.y),
+      zLo: Number(edge.zLo),
+      zHi: Number(edge.zHi),
+      barricadeLevel: Number.isFinite(edge.barricadeLevel) ? Number(edge.barricadeLevel) : 0,
+      isDestroyed: edge.isDestroyed === true,
+      hp: Number.isFinite(edge.hp) ? Number(edge.hp) : 0,
+    };
 
-    const mapMeta = game?.mapMeta || {};
-    const { byXY, byId } = getBuildingIndex(game, mapMeta);
+    await writer.updateActorAndEdgeAtomic(gameId, uid, actorPatch, edge.edgeId, edgePatch);
 
-    return { game, actor, byXY, byId };
-  }
-
-  async function spendApIfPlayer({ gameId, uid, actor, apCost, tag }) {
-    if (actor?.isPlayer !== true) {
-      const curAp = Number.isFinite(actor?.currentAp) ? Number(actor.currentAp) : 0;
-      return { curAp, nextAp: curAp };
-    }
-
-    const curAp = Number.isFinite(actor?.currentAp) ? Number(actor.currentAp) : 0;
-    if (curAp < apCost) throw new Error(`${tag}: not_enough_ap`);
-    const nextAp = Math.max(0, curAp - apCost);
-
-    await writer.updatePlayer(gameId, uid, { currentAp: nextAp });
-    return { curAp, nextAp };
-  }
-
-  async function persistEdge(gameId, buildingId, zFrom, zTo, e) {
-    const edgeId = stairService.edgeIdFor(buildingId, zFrom, zTo);
-    await writer.updateStairEdge(gameId, edgeId, {
-      edgeId,
-      buildingId: String(buildingId || ''),
-      zLo: Number(e?.zLo),
-      zHi: Number(e?.zHi),
-      barricadeLevel: Number.isFinite(e?.barricadeLevel) ? Number(e.barricadeLevel) : 0,
-      broken: e?.broken === true,
-      hp: Number.isFinite(e?.hp) ? Number(e.hp) : 0,
-    });
-    return edgeId;
+    return { edgeId: edge.edgeId, currentAp: (actor?.isPlayer === true) ? nextAp : undefined };
   }
 
   async function handleBarricadeStairs({ gameId = 'lockdown2030', uid, dz }) {
     const TAG = 'BARRICADE_STAIRS';
     if (!uid) throw new Error(`${TAG}: uid is required`);
 
-    const step = requireStep(dz, TAG);
-    const { actor, byXY, byId } = await loadGameActorAndIndex({ gameId, uid, tag: TAG });
+    const step = requireDzPlusMinus1(dz, TAG);
+
+    const actor = await reader.getActor(gameId, uid);
+    if (!actor) throw new Error(`${TAG}: actor_not_found`);
     requireInside(actor, TAG);
 
     const { x, y, z } = requireValidXYZ(actor, TAG);
-    const buildingId = requireOnBuildingTile(byXY, x, y, TAG);
-
-    const building = byId.get(buildingId) || null;
-    const floors = Number.isFinite(building?.floors) ? Number(building.floors) : 1;
-
     const nextZ = z + step;
     if (nextZ < 0) throw new Error(`${TAG}: cannot_go_below_0`);
-    if (nextZ > (floors - 1)) throw new Error(`${TAG}: floor_out_of_range`);
 
-    const apCost = Number.isFinite(STAIRS.BARRICADE_AP_COST) ? Number(STAIRS.BARRICADE_AP_COST) : 1;
-    const { nextAp } = await spendApIfPlayer({ gameId, uid, actor, apCost, tag: TAG });
+    await assertCellsExist(gameId, x, y, z, nextZ, TAG);
 
-    const curEdge = await stairService.loadEdgeOrDefault({ gameId, buildingId, zFrom: z, zTo: nextZ });
+    const apCost = apCostFor(TAG);
+
+    const curEdge = await stairService.loadEdgeOrDefault({ gameId, x, y, zFrom: z, zTo: nextZ });
     const nextEdge = stairService.applyBarricade(curEdge);
 
-    const edgeId = await persistEdge(gameId, buildingId, z, nextZ, nextEdge);
+    const { edgeId, currentAp } = await persistStairsEdgeAtomic({
+      gameId,
+      uid,
+      actor,
+      apCost,
+      edge: nextEdge,
+    });
 
-    return { ok: true, gameId, uid, edgeId, ...nextEdge, apCost, currentAp: nextAp };
+    const decorated = decorateForResponse(nextEdge);
+    const out = { ok: true, gameId, uid, edgeId, ...decorated, apCost };
+    if (actor.isPlayer === true) out.currentAp = currentAp;
+    return out;
   }
 
   async function handleDebarricadeStairs({ gameId = 'lockdown2030', uid, dz }) {
     const TAG = 'DEBARRICADE_STAIRS';
     if (!uid) throw new Error(`${TAG}: uid is required`);
 
-    const step = requireStep(dz, TAG);
-    const { actor, byXY, byId } = await loadGameActorAndIndex({ gameId, uid, tag: TAG });
+    const step = requireDzPlusMinus1(dz, TAG);
+
+    const actor = await reader.getActor(gameId, uid);
+    if (!actor) throw new Error(`${TAG}: actor_not_found`);
     requireInside(actor, TAG);
 
     const { x, y, z } = requireValidXYZ(actor, TAG);
-    const buildingId = requireOnBuildingTile(byXY, x, y, TAG);
-
-    const building = byId.get(buildingId) || null;
-    const floors = Number.isFinite(building?.floors) ? Number(building.floors) : 1;
-
     const nextZ = z + step;
     if (nextZ < 0) throw new Error(`${TAG}: cannot_go_below_0`);
-    if (nextZ > (floors - 1)) throw new Error(`${TAG}: floor_out_of_range`);
 
-    const apCost = Number.isFinite(STAIRS.DEBARRICADE_AP_COST) ? Number(STAIRS.DEBARRICADE_AP_COST) : 1;
-    const { nextAp } = await spendApIfPlayer({ gameId, uid, actor, apCost, tag: TAG });
+    await assertCellsExist(gameId, x, y, z, nextZ, TAG);
 
-    const curEdge = await stairService.loadEdgeOrDefault({ gameId, buildingId, zFrom: z, zTo: nextZ });
+    const apCost = apCostFor(TAG);
+
+    const curEdge = await stairService.loadEdgeOrDefault({ gameId, x, y, zFrom: z, zTo: nextZ });
     const nextEdge = stairService.applyDebarricade(curEdge);
 
-    const edgeId = await persistEdge(gameId, buildingId, z, nextZ, nextEdge);
+    const { edgeId, currentAp } = await persistStairsEdgeAtomic({
+      gameId,
+      uid,
+      actor,
+      apCost,
+      edge: nextEdge,
+    });
 
-    return { ok: true, gameId, uid, edgeId, ...nextEdge, apCost, currentAp: nextAp };
+    const decorated = decorateForResponse(nextEdge);
+    const out = { ok: true, gameId, uid, edgeId, ...decorated, apCost };
+    if (actor.isPlayer === true) out.currentAp = currentAp;
+    return out;
   }
 
   return {

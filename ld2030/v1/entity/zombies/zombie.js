@@ -12,6 +12,9 @@ const ZOMBIE_WALKER = {
 
   maxHp: 60,
   maxAp: 2,
+  currentHp: 60,
+  currentAp: 2,
+
   speed: 1,
   attackDamage: 8,
   hitChance: 0.7,
@@ -27,6 +30,9 @@ const ZOMBIE_RUNNER = {
 
   maxHp: 40,
   maxAp: 3,
+  currentHp: 40,
+  currentAp: 3,
+
   speed: 2,
   attackDamage: 7,
   hitChance: 0.75,
@@ -42,6 +48,9 @@ const ZOMBIE_SMART = {
 
   maxHp: 55,
   maxAp: 3,
+  currentHp: 55,
+  currentAp: 3,
+
   speed: 1,
   attackDamage: 9,
   hitChance: 0.85,
@@ -58,6 +67,9 @@ const ZOMBIE_HULK = {
 
   maxHp: 140,
   maxAp: 2,
+  currentHp: 140,
+  currentAp: 2,
+
   speed: 1,
   attackDamage: 20,
   hitChance: 0.6,

@@ -118,9 +118,9 @@ function makeInventoryService({ reader, writer }) {
     const newInventory = uniq(invNow.concat([itemId]));
 
     const equippedIds = listEquippedItemIdsDeep(actor.equipment);
-    const equippedDocs = await Promise.all(equippedIds.map((id) => reader.getItem(gameId, id)));
+    const equippedDocs = (await Promise.all(equippedIds.map((id) => reader.getItem(gameId, id)))).filter(Boolean);
 
-    const inventoryDocs = await Promise.all(newInventory.map((id) => reader.getItem(gameId, id)));
+    const inventoryDocs = (await Promise.all(newInventory.map((id) => reader.getItem(gameId, id)))).filter(Boolean);
 
     const derived = computeDerivedStats(equippedDocs);
     const carryUsed = computeCarryUsed({ inventoryDocs, equippedDocs });
@@ -156,8 +156,8 @@ function makeInventoryService({ reader, writer }) {
     const equippedIds = listEquippedItemIdsDeep(actor.equipment);
     if (equippedIds.includes(itemId)) throw new Error('inventory-service.dropItem: item_is_equipped');
 
-    const equippedDocs = await Promise.all(equippedIds.map((id) => reader.getItem(gameId, id)));
-    const inventoryDocs = await Promise.all(uniq(newInventory).map((id) => reader.getItem(gameId, id)));
+    const equippedDocs = (await Promise.all(equippedIds.map((id) => reader.getItem(gameId, id)))).filter(Boolean);
+    const inventoryDocs = (await Promise.all(uniq(newInventory).map((id) => reader.getItem(gameId, id)))).filter(Boolean);
 
     const derived = computeDerivedStats(equippedDocs);
     const carryUsed = computeCarryUsed({ inventoryDocs, equippedDocs });
@@ -174,7 +174,7 @@ function makeInventoryService({ reader, writer }) {
 
     const patchItem = {
       carriedBy: null,
-      pos: actor.pos || null,
+      pos: actor.pos, // Big Bang truth: must exist
     };
 
     return writer.dropItem({ gameId, actorId, itemId, patchActor, patchItem });

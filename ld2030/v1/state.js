@@ -1,26 +1,51 @@
-// ld2030/v1/state.js — Firestore helpers + init writes
+// ld2030/v1/state.js — Firestore helpers + init writes (BLUEPRINT ONLY)
+//
+// Big Bang V1:
+// - mapMeta is blueprint only (static)
+// - runtime gameplay state lives in:
+//   - cells/   (runtime truth)
+//   - edges/   (runtime truth)
+//   - districtState/ (runtime truth)
+//   - noiseTiles/    (runtime truth)
+//
+// This module provides collection helpers and writes the blueprint mapMeta.
+// Runtime init (cells/edges/districtState) is done in init-game.js.
+
 const { generateMap } = require('./map-gen');
 const { TILE_META } = require('./config');
+
 const makeSpawnStateWriter = require('./engine/state-writer-spawn');
 const { spawnAllForNewGame } = require('./state-spawn');
 
 module.exports = function makeState(db, admin) {
-  const gameRef    = (gameId) => db.collection('games').doc(gameId);
+  const gameRef    = (gameId) => db.collection('games').doc(String(gameId));
+
   const playersCol = (gameId) => gameRef(gameId).collection('players');
   const zombiesCol = (gameId) => gameRef(gameId).collection('zombies');
   const humansCol  = (gameId) => gameRef(gameId).collection('humans');
   const itemsCol   = (gameId) => gameRef(gameId).collection('items');
 
-  // per-tile/per-floor search state (shared world)
-  const spotsCol   = (gameId) => gameRef(gameId).collection('spots');
+  // Big Bang runtime world
+  const cellsCol         = (gameId) => gameRef(gameId).collection('cells');
+  const edgesCol         = (gameId) => gameRef(gameId).collection('edges');
+  const districtStateCol = (gameId) => gameRef(gameId).collection('districtState');
+  const noiseTilesCol    = (gameId) => gameRef(gameId).collection('noiseTiles');
 
-  // doors per building tile
-  const doorsCol   = (gameId) => gameRef(gameId).collection('doors');
+  // V1 bounded events feed
+  const eventsCol        = (gameId) => gameRef(gameId).collection('events');
+  const eventMetaDoc     = (gameId) => gameRef(gameId).collection('eventMeta').doc('feed');
 
-  // NEW: stair-edge barricades per building (between floors)
-  const stairsCol  = (gameId) => gameRef(gameId).collection('stairs');
+  // Chat collections (per-scope bounded feeds)
+  const chatMessagesCol = (gameId, scope) => {
+    const s = String(scope || '').trim() || 'global';
+    return gameRef(gameId).collection('chat').doc(s).collection('messages');
+  };
+  const chatMetaDoc = (gameId, scope) => {
+    const s = String(scope || '').trim() || 'global';
+    return gameRef(gameId).collection('chat').doc(s).collection('meta').doc('feed');
+  };
 
-  // Spawn writer uses the same collections
+  // Spawn writer uses the entity collections (not runtime world collections)
   const stateForSpawn = {
     gameRef,
     playersCol,
@@ -30,6 +55,7 @@ module.exports = function makeState(db, admin) {
   };
   const spawnWriter = makeSpawnStateWriter({ db, admin, state: stateForSpawn });
 
+  // Writes only blueprint mapMeta + game doc (no runtime cells/edges here).
   async function writeMapAndGame({
     gameId,
     mapId,
@@ -44,8 +70,18 @@ module.exports = function makeState(db, admin) {
 
     const gRef = gameRef(gameId);
 
+    // Idempotency gate: if mapMeta already exists and not forcing, do nothing.
+    if (!_force) {
+      const existing = await gRef.get();
+      if (existing.exists) {
+        const g = existing.data() || {};
+        if (g.mapMeta) return; // blueprint already written; do NOT respawn
+      }
+    }
+
     const mapDoc = generateMap({ seed, w, h });
 
+    // Tile meta (blueprint helper)
     const tileMetaForFirestore = {};
     if (TILE_META && typeof TILE_META === 'object') {
       Object.entries(TILE_META).forEach(([code, meta]) => {
@@ -72,12 +108,14 @@ module.exports = function makeState(db, admin) {
     batch.set(
       gRef,
       {
-        gameId,
-        mapId,
+        gameId: String(gameId),
+        mapId: String(mapId),
         gridsize: { w, h },
         status: 'live',
-        round: admin.firestore.FieldValue.increment(0) || 1,
+        round: 1,
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
+
+        // Blueprint only. Runtime state is in cells/edges/districtState/noiseTiles.
         mapMeta: mapMeta
           ? {
               version: mapMeta.version,
@@ -94,6 +132,7 @@ module.exports = function makeState(db, admin) {
               districts: mapMeta.districts || null,
             }
           : admin.firestore.FieldValue.delete(),
+
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
       { merge: true }
@@ -101,6 +140,7 @@ module.exports = function makeState(db, admin) {
 
     await batch.commit();
 
+    // Entity spawns (players/zombies/humans/items). This is not runtime world init.
     await spawnAllForNewGame({
       gameId,
       mapMeta: mapMetaForSpawn,
@@ -120,14 +160,30 @@ module.exports = function makeState(db, admin) {
 
   return {
     gameRef,
+
+    // entities
     playersCol,
     zombiesCol,
     humansCol,
     itemsCol,
-    spotsCol,
-    doorsCol,
-    stairsCol, // ✅
+
+    // runtime world
+    cellsCol,
+    edgesCol,
+    districtStateCol,
+    noiseTilesCol,
+
+    // events feed
+    eventsCol,
+    eventMetaDoc,
+
+    // chat feed
+    chatCol: chatMessagesCol,
+    chatMetaDoc,
+
+    // blueprint init
     writeMapAndGame,
+
     readGridSize,
   };
 };

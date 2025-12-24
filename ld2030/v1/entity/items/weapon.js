@@ -48,7 +48,7 @@ const ITEM_WEAPON_PISTOL = {
   attackApCost: 2,
 
   usesAmmo: true,
-  ammoType: '9MM',
+  ammoType: 'AMMO_9MM',
   ammoPerAttack: 1,
 
   loudness: 3,
@@ -74,7 +74,7 @@ const ITEM_WEAPON_SHOTGUN = {
   attackApCost: 2,
 
   usesAmmo: true,
-  ammoType: 'SHELL',
+  ammoType: 'AMMO_SHELL',
   ammoPerAttack: 1,
 
   loudness: 4,
@@ -100,7 +100,7 @@ const ITEM_WEAPON_RIFLE = {
   attackApCost: 2,
 
   usesAmmo: true,
-  ammoType: '556',
+  ammoType: 'AMMO_556',
   ammoPerAttack: 1,
 
   loudness: 4,

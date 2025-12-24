@@ -370,6 +370,7 @@ function generateHybridLayout({
 
   // ----- Zoning assignment -----
   const zoneGrid = Array.from({ length: h }, () => Array.from({ length: w }, () => null));
+  const districtGrid = Array.from({ length: h }, () => Array.from({ length: w }, () => 0));
 
   const districtTypes = [];
   for (let i = 0; i < districtCenters.length; i++) {
@@ -401,6 +402,7 @@ function generateHybridLayout({
       if (rows[y][x] === B) {
         const idx = nearestDistrictIndex(x, y);
         zoneGrid[y][x] = districtTypes[idx];
+        districtGrid[y][x] = idx;
       }
     }
   }
@@ -428,8 +430,65 @@ function generateHybridLayout({
   for (let y = 0; y < h; y++) {
     for (let x = 0; x < w; x++) {
       if (rows[y][x] === B) {
-        buildTiles.push({ x, y, zone: zoneGrid[y][x] || ZONE_RES });
+        buildTiles.push({
+          x,
+          y,
+          zone: zoneGrid[y][x] || ZONE_RES,
+          district: districtGrid[y][x] || 0,
+        });
       }
+    }
+  }
+
+  const FACILITY_DEFS = [
+    { key: 'TRANSFORMER_SUBSTATION', zones: [ZONE_IND, ZONE_CIV, ZONE_COM, ZONE_RES] },
+    { key: 'WATER_PLANT', zones: [ZONE_IND, ZONE_CIV, ZONE_RES] },
+    { key: 'ISP', zones: [ZONE_CIV, ZONE_COM, ZONE_IND, ZONE_RES] },
+  ];
+
+  const tilesByDistrict = districtCenters.map(() => []);
+  for (const tile of buildTiles) {
+    const idx = Math.min(Math.max(tile.district || 0, 0), tilesByDistrict.length - 1);
+    if (tilesByDistrict[idx]) tilesByDistrict[idx].push(tile);
+  }
+
+  const usedFacilityCoords = new Set();
+
+  function zonePriority(zone, preferZones) {
+    const idx = preferZones.indexOf(zone);
+    return idx === -1 ? preferZones.length : idx;
+  }
+
+  function pickFacilityTile(dIndex, preferZones, allowUsed = false) {
+    const tiles = tilesByDistrict[dIndex] || [];
+    if (!tiles.length) return null;
+    const center = districtCenters[dIndex] || { x: 0, y: 0 };
+
+    const candidates = tiles
+      .filter((t) => allowUsed || !usedFacilityCoords.has(`${t.x},${t.y}`))
+      .sort((a, b) => {
+        const pa = zonePriority(a.zone, preferZones);
+        const pb = zonePriority(b.zone, preferZones);
+        if (pa !== pb) return pa - pb;
+        const da = manhattan({ x: a.x, y: a.y }, center);
+        const db = manhattan({ x: b.x, y: b.y }, center);
+        if (da !== db) return da - db;
+        return (a.x + a.y) - (b.x + b.y);
+      });
+
+    const choice = candidates[0];
+    if (!choice) return null;
+    usedFacilityCoords.add(`${choice.x},${choice.y}`);
+    return { x: choice.x, y: choice.y };
+  }
+
+  const districtFacilities = districtCenters.map(() => ({}));
+  for (let i = 0; i < districtCenters.length; i++) {
+    for (const fac of FACILITY_DEFS) {
+      let placement = pickFacilityTile(i, fac.zones, false);
+      if (!placement) placement = pickFacilityTile(i, fac.zones, true);
+      if (!placement) continue;
+      districtFacilities[i][fac.key] = placement;
     }
   }
 
@@ -439,6 +498,7 @@ function generateHybridLayout({
     districtCenters,
     buildTiles,   // added for generic building generation (Option C)
     zones: zoneGrid,
+    facilities: districtFacilities,
   };
 }
 

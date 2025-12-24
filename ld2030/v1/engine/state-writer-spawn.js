@@ -1,8 +1,10 @@
 // ld2030/v1/engine/state-writer-spawn.js
 // Spawn helpers (zombies, humans, items).
-// NEW MODEL (no legacy):
-// - Actors use: maxHp/maxAp + currentHp/currentAp
-// - Items use: durabilityMax + currentDurability
+//
+// BIG BANG V1 COMPLIANCE:
+// - Actors MUST have pos: { x, y, z, layer } where layer ∈ {0,1}
+// - No legacy isInsideBuilding field (layer is the truth)
+// - Spawned actors/items default to OUTSIDE: layer=0, z=0
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -59,6 +61,10 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
     };
   }
 
+  function posOutside(x, y) {
+    return { x, y, z: 0, layer: 0 };
+  }
+
   async function spawnZombies(gameId, spawns) {
     if (!gameId) throw new Error('spawnZombies: missing gameId');
 
@@ -85,8 +91,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       if (!tmpl) return;
 
       const doc = buildActorDocFromTemplate(tmpl, {
-        pos: { x, y, z: 0 },
-        isInsideBuilding: false,
+        pos: posOutside(x, y),
       });
 
       const ref = col.doc();
@@ -124,8 +129,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       if (!tmpl) return;
 
       const doc = buildActorDocFromTemplate(tmpl, {
-        pos: { x, y, z: 0 },
-        isInsideBuilding: false,
+        pos: posOutside(x, y),
       });
 
       const ref = col.doc();
@@ -162,7 +166,10 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('ITEM', kindKey);
       if (!tmpl) return;
 
-      const doc = buildItemDocFromTemplate(tmpl, { pos: { x, y, z: 0 } });
+      const doc = buildItemDocFromTemplate(tmpl, {
+        pos: posOutside(x, y),
+        carriedBy: null,
+      });
 
       const ref = col.doc();
       batch.set(ref, doc);

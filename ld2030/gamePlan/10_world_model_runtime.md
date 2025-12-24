@@ -8,6 +8,15 @@
   - `districtState/` (district-wide utility switches)
   - `noiseTiles/` (noise/groan map)
 
+## Max-values policy (locked)
+- Firestore stores **mutable runtime truth only** (`hp`, `remaining`, flags, etc.).
+- **Max/base values are derived from server config (`WORLD`)**:
+  - `cell.maxHp`, `cell.search.maxRemaining`, component maxes
+  - door **base HP** and any door **max HP** used for UI math
+- Max/base values **do not need to exist in Firestore**.
+- If any docs contain max/base fields (legacy/debug), they are **non-authoritative** and must not be used as gameplay truth.
+- Server responses may include derived max/base values for UI math (integrity labels, percentages), but they are not runtime state.
+
 ---
 
 ## Collections (locked)
@@ -24,8 +33,8 @@
 
 ### Edges (runtime truth)
 - `games/{gameId}/edges/e_{ax}_{ay}_{az}_{al}__{bx}_{by}_{bz}_{bl}`
-  - doors and stairs live here (hp, barricade, open/closed, etc.)
-  - prevents outside/inside drift and duplicated door state
+  - door + stairs barriers live here (hp + open/secured where relevant)
+  - prevents outside/inside drift and duplicated barrier state
 
 ### District state (runtime truth)
 - `games/{gameId}/districtState/{districtId}`
@@ -45,6 +54,7 @@ Common fields:
 - `cellId` (string)
 - `x` (int), `y` (int), `z` (int)
 - `layer` (int: 0 outside, 1 inside)
+- `createdAt`, `updatedAt`
 
 Outside-only (layer=0):
 - `terrain` (string)
@@ -53,59 +63,95 @@ Outside-only (layer=0):
 
 Inside-only (layer=1):
 - `type` (string) — building type (HOUSE/BAR/etc), drives loot/search table
+- `districtId` (string|null) — for district utilities mapping (recommended)
 
-Shared runtime state:
-- `hp` (int), `maxHp` (int)
+Shared runtime state (mutable truth only):
+- `hp` (int)
 - `ruined` (bool)
-- `fuse` { `hp`, `maxHp` }
-- `water` { `hp`, `maxHp` }
-- `generator` { `installed` (bool), `hp`, `maxHp` }
-- `search` { `remaining`, `maxRemaining`, `searchedCount` }
-- `createdAt`, `updatedAt`
+
+Inside-only runtime components (mutable truth only):
+- `fuse` { `hp` }
+- `water` { `hp` }
+- `generator` { `installed` (bool), `hp` }
+- `search` { `remaining`, `searchedCount` }
+
+Derived (NOT required in Firestore; may be returned in responses):
+- `maxHp`
+- `fuse.maxHp`
+- `water.maxHp`
+- `generator.maxHp`
+- `search.maxRemaining`
 
 Notes (locked):
 - Outside terrain also exists as cells (at minimum z=0, layer=0).
 - Indoor cells exist for building footprint tiles across floors (z=0..floors-1, layer=1).
 - Doors/stairs are never stored on cells; they live on edges.
+- Persisting derived max/base values for convenience/debug is allowed, but they remain **non-authoritative**.
 
 ---
 
 ## Edges schema (locked v1)
 
-Doc id: `e_{a...}__{b...}`  
-Fields:
+Doc id: `e_{a...}__{b...}`
+
+Fields (runtime truth):
 - `edgeId` (string)
 - Endpoints:
   - A: `{x,y,z,layer}`
   - B: `{x,y,z,layer}`
 - `kind`: `"door"` | `"stairs"`
-- `hp`, `maxHp`
-- Door-only:
-  - `isOpen` (bool)
-  - `isSecured` (bool)
-  - `barricadeLevel` (int)
-- Stairs-only:
-  - `barricadeLevel` (int) (or equivalent block value)
+- `hp` (int) — **edge barrier HP (single pool)**
+
+### Edge barrier HP semantics (LOCKED — single meaning)
+`edge.hp` means **HP of the blocking barrier on that edge**.
+
+- **Door edge (`kind="door"`):**
+  - `edge.hp` = **door barrier HP pool** (door itself + any added barricade, same pool).
+  - Door base HP (and any max HP used for UI/integrity math) is **derived** from config (`WORLD`), not stored as max/base fields.
+  - Door edges MUST be initialized with `hp = baseDoorHp` (derived) at init.
+  - Door is passable if `isOpen=true OR hp<=0`.
+
+- **Stairs edge (`kind="stairs"`):**
+  - `edge.hp` = **stairs barricade HP** (NOT the stairs).
+  - Stairs are not destructible; only the barricade is.
+  - Stairs edges MUST be initialized with `hp = 0` (no barricade installed) at init.
+  - `hp > 0` means barricade exists → stairs blocked.
+  - Barricading stairs increases `hp`; attacking it reduces `hp` back toward 0.
+
+Door-only fields (runtime truth):
+- `isOpen` (bool)
+- `isSecured` (bool)
+  - Locked rule: a door cannot be secured if it is open. Must close first.
+
+Notes (locked):
+- “Broken/damaged/etc” are **integrity labels**, not stored truth.
+- If you see stored `maxHp`, `baseHp`, `barricadeLevel`, etc. from old versions, treat as **non-authoritative**.
 
 ---
 
 ## Barrier rules (locked)
-- Same-tile interactions only.
+- Same-tile interactions only (same `(x,y,z,layer)` when relevant).
 - Doors block outside→inside enter if `isOpen=false AND hp>0`.
 - Doors pass if `isOpen=true OR hp<=0`.
-- Stairs block floor change if `hp>0` (or barricade blocks) on the stairs edge.
+- Stairs block floor change if `hp>0` (meaning: stairs barricade exists).
 
 ---
 
 ## Integrity labels (shared UI rule, locked)
-At 100%: no label.
-Otherwise show ONE:
-- `hp <= 0` → destroyed
+At 100%: no label. Otherwise show ONE (using derived base/max where needed):
+
+- Door: `hp <= 0` → door destroyed
+- Stairs: `hp <= 0` → barricade removed (not “destroyed stairs”)
 - `0 < hp/maxHp <= 0.33` → almost destroyed
 - `0.33 < hp/maxHp <= 0.66` → broken
 - `0.66 < hp/maxHp < 1.0` → damaged
 
-State labels separate: open/closed where relevant.
+Notes:
+- `maxHp` here is derived from server config (or returned by server), not required in Firestore.
+- Door labeling can use derived `baseDoorHp`:
+  - if `hp > baseDoorHp` ⇒ door is “barricaded” (extra HP above base)
+  - if `hp <= baseDoorHp` ⇒ plain door
+- Secured requires closed (`isOpen=false`).
 
 ---
 
@@ -125,13 +171,13 @@ Availability rules:
   - (`district.ispOn` AND cell has power)
 
 ISP naming (locked):
-- Gameplay name is **ISP**
-- Config/building key may remain `RADIO_STATION` if needed for compatibility, but the *concept* is ISP.
+- Gameplay name and config key is **ISP**.
 
 ---
 
 ## NoiseTiles (locked design)
-Doc id: `n_{x}_{y}_{z}`  
+Doc id: `n_{x}_{y}_{z}`
+
 Fields:
 - `x,y,z`
 - `level` (int)

@@ -1,23 +1,31 @@
 // ld2030/v1/actions/unequip-item.js
-// HTTP -> router action. No game logic here.
+// POST /unequip-item
+// Uses action-router helpers (not engine.processAction).
 
-module.exports = function registerUnequipItem(app, { engine, base }) {
-  if (!app) throw new Error('registerUnequipItem: app is required');
-  if (!engine?.router) throw new Error('registerUnequipItem: engine.router is required');
-  if (!base) throw new Error('registerUnequipItem: base is required');
+module.exports = function registerUnequipItem(app, { actions, base } = {}) {
+  if (!app) throw new Error('unequip-item: app is required');
+  if (!actions || typeof actions.handleUnequipItem !== 'function') {
+    throw new Error('unequip-item: actions.handleUnequipItem is required');
+  }
 
-  app.post(`${base}/unequip-item`, async (req, res) => {
+  const BASE = String(base || '').trim();
+  if (!BASE) throw new Error('unequip-item: base is required');
+
+  app.post(`${BASE}/unequip-item`, async (req, res) => {
     try {
-      const { uid, itemId, gameId = 'lockdown2030' } = req.body || {};
-      if (!uid) return res.status(400).json({ ok: false, error: 'missing_uid' });
-      if (!itemId) return res.status(400).json({ ok: false, error: 'missing_itemId' });
+      const body = req.body || {};
+      const uid = String(body.uid || '').trim();
+      const gameId = String(body.gameId || 'lockdown2030').trim();
+      const itemId = String(body.itemId || '').trim();
 
-      // action-router must expose: handleUnequipItem({ uid, itemId, gameId })
-      const result = await engine.router.handleUnequipItem({ uid, itemId, gameId });
+      if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+      if (!itemId) return res.status(400).json({ ok: false, error: 'itemId_required' });
+
+      const result = await actions.handleUnequipItem({ uid, gameId, itemId });
       return res.json(result);
     } catch (e) {
       console.error('unequip-item error', e);
-      return res.status(400).json({ ok: false, error: String(e?.message || e) });
+      return res.status(400).json({ ok: false, error: String(e?.message || 'unequip_failed') });
     }
   });
 };

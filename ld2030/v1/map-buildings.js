@@ -7,6 +7,8 @@ function normalizeBuildingType(type, floors) {
   const t = String(type || '').toUpperCase();
   const f = Number.isFinite(floors) ? floors : 1;
 
+  if (t === 'RADIO_STATION') return 'ISP';
+
   // HOUSE -> APARTMENT if tall
   if (t === 'HOUSE' && f >= 3) return 'APARTMENT';
 

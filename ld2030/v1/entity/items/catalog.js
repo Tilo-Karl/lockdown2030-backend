@@ -11,11 +11,21 @@ const ALL_ITEMS = [
   ...Object.values(weapon),
 ];
 
-const ITEM_BY_KIND = Object.fromEntries(ALL_ITEMS.map(it => [it.kind, it]));
+const ITEM_BY_KIND = {};
+for (const it of ALL_ITEMS) {
+  if (!it || typeof it !== 'object') continue;
+  const kind = String(it.kind || '').trim();
+  if (!kind) continue;
+  if (ITEM_BY_KIND[kind]) {
+    throw new Error(`items/catalog: duplicate item kind: ${kind}`);
+  }
+  ITEM_BY_KIND[kind] = it;
+}
 
 function getItem(kind) {
-  const it = ITEM_BY_KIND[kind];
-  if (!it) throw new Error(`items/catalog: unknown item kind: ${kind}`);
+  const k = String(kind || '').trim();
+  const it = ITEM_BY_KIND[k];
+  if (!it) throw new Error(`items/catalog: unknown item kind: ${k}`);
   return it;
 }
 

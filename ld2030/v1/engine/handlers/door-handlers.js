@@ -1,160 +1,188 @@
 // ld2030/v1/engine/handlers/door-handlers.js
 // Door action handlers (secure/barricade/debarricade/repair).
-// Engine delegates door gameplay here.
+// Persists ONLY runtime truth via edges/*.
+// Door ops are inside+ground only.
+// AP + edge write are ATOMIC via writer.updateActorAndEdgeAtomic.
 
-const { DOOR } = require('../../config');
-const { getBuildingIndex } = require('../building-index');
+const { apCostFor, ensureActorHasAp } = require('../../actions/ap-service');
+const { requirePos, cellIdFor } = require('../../actions/validators');
 const { makeDoorService } = require('../door-service');
+const { integrityLabel } = require('../integrity');
 
 function makeDoorHandlers({ reader, writer, doorService: doorServiceIn }) {
   if (!reader) throw new Error('door-handlers: reader is required');
   if (!writer) throw new Error('door-handlers: writer is required');
+  if (typeof writer.updateActorAndEdgeAtomic !== 'function') {
+    throw new Error('door-handlers: writer.updateActorAndEdgeAtomic is required');
+  }
 
-  // Prefer injected service (from engine), fallback to local construction
   const doorService = doorServiceIn || makeDoorService({ reader });
 
-  function requireInside(actor, tag) {
-    if (actor?.isInsideBuilding !== true) throw new Error(`${tag}: must_be_inside_building`);
+  function requireInsideGround(actor, tag) {
+    const pos = requirePos(actor, tag);
+    if (pos.layer !== 1) throw new Error(`${tag}: must_be_inside_building`);
+    if (pos.z !== 0) throw new Error(`${tag}: must_be_ground_floor`);
+    return pos;
   }
 
-  function requireValidXY(actor, tag) {
-    const pos = actor?.pos || {};
-    const x = Number(pos.x);
-    const y = Number(pos.y);
-    if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error(`${tag}: invalid_pos`);
-    return { x, y };
+  async function requireInsideCellExists(gameId, x, y, tag) {
+    const c = await reader.getCell(gameId, cellIdFor(x, y, 0, 1));
+    if (!c) throw new Error(`${tag}: must_be_on_building_tile`);
   }
 
-  function requireOnBuildingTile(byXY, x, y, tag) {
-    const id = byXY.get(`${x},${y}`) || null;
-    if (!id) throw new Error(`${tag}: not_on_building_tile`);
-    return id;
+  function decorateDoorForResponse(d) {
+    const maxHp = doorService.computeDoorHp({ ...d, hp: 999999 });
+    const label = integrityLabel({ hp: d.hp, maxHp });
+    return { ...d, maxHp, integrity: label };
   }
 
-  async function loadGameActorAndIndex({ gameId, uid, tag }) {
-    const game = await reader.getGame(gameId);
-    if (!game) throw new Error(`${tag}: game_not_found`);
+  async function persistDoorAtomic({ gameId, uid, actor, apCost, door }) {
+    const edgeId = doorService.doorEdgeIdForTile(door.x, door.y);
 
-    const actor = await reader.getPlayer(gameId, uid);
-    if (!actor) throw new Error(`${tag}: actor_not_found`);
+    const defaults = doorService.doorDefaults(door.x, door.y);
+    const a = door.a ? door.a : defaults.a;
+    const b = door.b ? door.b : defaults.b;
 
-    const mapMeta = game?.mapMeta || {};
-    const { byXY } = getBuildingIndex(game, mapMeta);
+    const { nextAp } = ensureActorHasAp(actor, apCost, 'AP');
 
-    return { game, actor, byXY };
-  }
+    const actorPatch = (actor?.isPlayer === true) ? { currentAp: nextAp } : {};
 
-  async function spendApIfPlayer({ gameId, uid, actor, apCost, tag }) {
-    if (actor?.isPlayer !== true) {
-      const curAp = Number.isFinite(actor?.currentAp) ? Number(actor.currentAp) : 0;
-      return { curAp, nextAp: curAp };
-    }
+    const edgePatch = {
+      kind: 'door',
+      // edgeId enforced by writer
+      a,
+      b,
+      x: door.x,
+      y: door.y,
+      outsideCellId: String(door.outsideCellId || defaults.outsideCellId),
+      insideCellId: String(door.insideCellId || defaults.insideCellId),
+      isOpen: door.isOpen === true,
+      isSecured: door.isSecured === true,
+      barricadeLevel: Number.isFinite(door.barricadeLevel) ? Number(door.barricadeLevel) : 0,
+      isDestroyed: door.isDestroyed === true,
+      hp: Number.isFinite(door.hp) ? Number(door.hp) : 0,
+    };
 
-    const curAp = Number.isFinite(actor?.currentAp) ? Number(actor.currentAp) : 0;
-    if (curAp < apCost) throw new Error(`${tag}: not_enough_ap`);
-    const nextAp = Math.max(0, curAp - apCost);
+    await writer.updateActorAndEdgeAtomic(gameId, uid, actorPatch, edgeId, edgePatch);
 
-    await writer.updatePlayer(gameId, uid, { currentAp: nextAp });
-    return { curAp, nextAp };
-  }
-
-  async function persistDoor(gameId, x, y, d) {
-    const doorId = doorService.doorIdForTile(x, y);
-    await writer.updateDoor(gameId, doorId, {
-      doorId,
-      x,
-      y,
-      isOpen: d.isOpen === true,
-      isSecured: d.isSecured === true,
-      barricadeLevel: Number.isFinite(d.barricadeLevel) ? Number(d.barricadeLevel) : 0,
-      broken: d.broken === true,
-      hp: Number.isFinite(d.hp) ? Number(d.hp) : 0,
-    });
-    return doorId;
+    return { edgeId, currentAp: (actor?.isPlayer === true) ? nextAp : undefined };
   }
 
   async function handleSecureDoor({ gameId = 'lockdown2030', uid }) {
     const TAG = 'SECURE_DOOR';
     if (!uid) throw new Error(`${TAG}: uid is required`);
 
-    const { actor, byXY } = await loadGameActorAndIndex({ gameId, uid, tag: TAG });
-    requireInside(actor, TAG);
+    const actor = await reader.getActor(gameId, uid);
+    if (!actor) throw new Error(`${TAG}: actor_not_found`);
 
-    const { x, y } = requireValidXY(actor, TAG);
-    requireOnBuildingTile(byXY, x, y, TAG);
+    const pos = requireInsideGround(actor, TAG);
+    await requireInsideCellExists(gameId, pos.x, pos.y, TAG);
 
-    const apCost = Number.isFinite(DOOR.SECURE_AP_COST) ? Number(DOOR.SECURE_AP_COST) : 1;
-    const { nextAp } = await spendApIfPlayer({ gameId, uid, actor, apCost, tag: TAG });
+    const apCost = apCostFor(TAG);
+    // ensureActorHasAp() happens inside persistDoorAtomic before the tx writes.
 
-    const curDoor = await doorService.loadDoorOrDefault({ gameId, x, y });
+    const curDoor = await doorService.loadDoorOrDefault({ gameId, x: pos.x, y: pos.y });
     const nextDoor = doorService.applySecure(curDoor);
 
-    const doorId = await persistDoor(gameId, x, y, nextDoor);
+    const { edgeId, currentAp } = await persistDoorAtomic({
+      gameId,
+      uid,
+      actor,
+      apCost,
+      door: nextDoor,
+    });
 
-    return { ok: true, gameId, uid, doorId, ...nextDoor, apCost, currentAp: nextAp };
+    const decorated = decorateDoorForResponse(nextDoor);
+    const out = { ok: true, gameId, uid, edgeId, ...decorated, apCost };
+    if (actor.isPlayer === true) out.currentAp = currentAp;
+    return out;
   }
 
   async function handleBarricadeDoor({ gameId = 'lockdown2030', uid }) {
     const TAG = 'BARRICADE_DOOR';
     if (!uid) throw new Error(`${TAG}: uid is required`);
 
-    const { actor, byXY } = await loadGameActorAndIndex({ gameId, uid, tag: TAG });
-    requireInside(actor, TAG);
+    const actor = await reader.getActor(gameId, uid);
+    if (!actor) throw new Error(`${TAG}: actor_not_found`);
 
-    const { x, y } = requireValidXY(actor, TAG);
-    requireOnBuildingTile(byXY, x, y, TAG);
+    const pos = requireInsideGround(actor, TAG);
+    await requireInsideCellExists(gameId, pos.x, pos.y, TAG);
 
-    const apCost = Number.isFinite(DOOR.BARRICADE_AP_COST) ? Number(DOOR.BARRICADE_AP_COST) : 1;
-    const { nextAp } = await spendApIfPlayer({ gameId, uid, actor, apCost, tag: TAG });
+    const apCost = apCostFor(TAG);
 
-    const curDoor = await doorService.loadDoorOrDefault({ gameId, x, y });
+    const curDoor = await doorService.loadDoorOrDefault({ gameId, x: pos.x, y: pos.y });
     const nextDoor = doorService.applyBarricade(curDoor);
 
-    const doorId = await persistDoor(gameId, x, y, nextDoor);
+    const { edgeId, currentAp } = await persistDoorAtomic({
+      gameId,
+      uid,
+      actor,
+      apCost,
+      door: nextDoor,
+    });
 
-    return { ok: true, gameId, uid, doorId, ...nextDoor, apCost, currentAp: nextAp };
+    const decorated = decorateDoorForResponse(nextDoor);
+    const out = { ok: true, gameId, uid, edgeId, ...decorated, apCost };
+    if (actor.isPlayer === true) out.currentAp = currentAp;
+    return out;
   }
 
   async function handleDebarricadeDoor({ gameId = 'lockdown2030', uid }) {
     const TAG = 'DEBARRICADE_DOOR';
     if (!uid) throw new Error(`${TAG}: uid is required`);
 
-    const { actor, byXY } = await loadGameActorAndIndex({ gameId, uid, tag: TAG });
-    requireInside(actor, TAG);
+    const actor = await reader.getActor(gameId, uid);
+    if (!actor) throw new Error(`${TAG}: actor_not_found`);
 
-    const { x, y } = requireValidXY(actor, TAG);
-    requireOnBuildingTile(byXY, x, y, TAG);
+    const pos = requireInsideGround(actor, TAG);
+    await requireInsideCellExists(gameId, pos.x, pos.y, TAG);
 
-    const apCost = Number.isFinite(DOOR.DEBARRICADE_AP_COST) ? Number(DOOR.DEBARRICADE_AP_COST) : 1;
-    const { nextAp } = await spendApIfPlayer({ gameId, uid, actor, apCost, tag: TAG });
+    const apCost = apCostFor(TAG);
 
-    const curDoor = await doorService.loadDoorOrDefault({ gameId, x, y });
+    const curDoor = await doorService.loadDoorOrDefault({ gameId, x: pos.x, y: pos.y });
     const nextDoor = doorService.applyDebarricade(curDoor);
 
-    const doorId = await persistDoor(gameId, x, y, nextDoor);
+    const { edgeId, currentAp } = await persistDoorAtomic({
+      gameId,
+      uid,
+      actor,
+      apCost,
+      door: nextDoor,
+    });
 
-    return { ok: true, gameId, uid, doorId, ...nextDoor, apCost, currentAp: nextAp };
+    const decorated = decorateDoorForResponse(nextDoor);
+    const out = { ok: true, gameId, uid, edgeId, ...decorated, apCost };
+    if (actor.isPlayer === true) out.currentAp = currentAp;
+    return out;
   }
 
   async function handleRepairDoor({ gameId = 'lockdown2030', uid }) {
     const TAG = 'REPAIR_DOOR';
     if (!uid) throw new Error(`${TAG}: uid is required`);
 
-    const { actor, byXY } = await loadGameActorAndIndex({ gameId, uid, tag: TAG });
-    requireInside(actor, TAG);
+    const actor = await reader.getActor(gameId, uid);
+    if (!actor) throw new Error(`${TAG}: actor_not_found`);
 
-    const { x, y } = requireValidXY(actor, TAG);
-    requireOnBuildingTile(byXY, x, y, TAG);
+    const pos = requireInsideGround(actor, TAG);
+    await requireInsideCellExists(gameId, pos.x, pos.y, TAG);
 
-    const apCost = Number.isFinite(DOOR.REPAIR_AP_COST) ? Number(DOOR.REPAIR_AP_COST) : 2;
-    const { nextAp } = await spendApIfPlayer({ gameId, uid, actor, apCost, tag: TAG });
+    const apCost = apCostFor(TAG);
 
-    const curDoor = await doorService.loadDoorOrDefault({ gameId, x, y });
+    const curDoor = await doorService.loadDoorOrDefault({ gameId, x: pos.x, y: pos.y });
     const nextDoor = doorService.applyRepair(curDoor);
 
-    const doorId = await persistDoor(gameId, x, y, nextDoor);
+    const { edgeId, currentAp } = await persistDoorAtomic({
+      gameId,
+      uid,
+      actor,
+      apCost,
+      door: nextDoor,
+    });
 
-    return { ok: true, gameId, uid, doorId, ...nextDoor, apCost, currentAp: nextAp };
+    const decorated = decorateDoorForResponse(nextDoor);
+    const out = { ok: true, gameId, uid, edgeId, ...decorated, apCost };
+    if (actor.isPlayer === true) out.currentAp = currentAp;
+    return out;
   }
 
   return {

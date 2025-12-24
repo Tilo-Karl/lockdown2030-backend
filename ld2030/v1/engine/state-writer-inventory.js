@@ -41,7 +41,12 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
 
   function samePos(a, b) {
     if (!a || !b) return false;
-    return Number(a.x) === Number(b.x) && Number(a.y) === Number(b.y);
+    return (
+      Number(a.x) === Number(b.x) &&
+      Number(a.y) === Number(b.y) &&
+      Number(a.z) === Number(b.z) &&
+      Number(a.layer) === Number(b.layer)
+    );
   }
 
   async function pickupItem({ gameId = 'lockdown2030', actorId, itemId, patchActor, patchItem }) {
@@ -65,7 +70,7 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
       if (String(actor.type || '').toUpperCase() !== 'HUMAN') throw new Error('pickupItem: actor_not_human');
       if (String(item.type || '').toUpperCase() !== 'ITEM') throw new Error('pickupItem: item_not_item');
 
-      // Must be on same tile, and not already carried.
+      // Must be on same tile (x,y,z,layer), and not already carried.
       if (item.carriedBy) throw new Error('pickupItem: item_already_carried');
       if (!samePos(actor.pos, item.pos)) throw new Error('pickupItem: item_not_on_actor_tile');
 
@@ -118,7 +123,7 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
       if (!Array.isArray(invAfter)) throw new Error('dropItem: patch_inventory_missing');
       if (invAfter.includes(itemId)) throw new Error('dropItem: patch_does_not_remove_item');
 
-      // Patch item must clear carriedBy and set pos to actor.pos
+      // Patch item must clear carriedBy and set pos to actor.pos (x,y,z,layer).
       if (patchItem.carriedBy !== null) throw new Error('dropItem: patchItem_carriedBy_must_be_null');
       if (!samePos(patchItem.pos, actor.pos)) throw new Error('dropItem: patchItem_pos_must_equal_actor_pos');
 

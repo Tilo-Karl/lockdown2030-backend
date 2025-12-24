@@ -1,4 +1,3 @@
-// ld2030/v1/config/config-game.js
 // Core high-level game config: grid, map, player defaults, zombie density, districts.
 
 //
@@ -184,8 +183,19 @@ const DISTRICTS = {
 // PLAYER defaults (used by join-game)
 //
 const PLAYER = {
+  // Contracts
   START_HP: 100,
   START_AP: 3,
+
+  // Mandatory V1 gameplay defaults (stored on player doc at join/init)
+  CARRY_CAP: 20,
+  START_HUNGER: 4,
+  START_HYDRATION: 4,
+  START_STRESS: 0,
+
+  // Downed fields exist, even if derived later
+  START_IS_DOWNED: false,
+  START_DOWNED_AT: null,
 };
 
 //
@@ -197,10 +207,78 @@ const ZOMBIE = {
   MAX: 400,
 };
 
+//
+// WORLD (runtime truth defaults + durability) — Big Bang V1
+// Rule B: maxHp is DERIVED from here (do not persist maxHp in cells/* or edges/*).
+//
+const WORLD = {
+  CELLS: {
+    OUTSIDE: {
+      // Outside “cells” aren’t destructible in V1.
+      HP_MAX: 0,
+    },
+
+    INSIDE: {
+      // Inside cell structure durability (derived)
+      HP_MAX_DEFAULT: 50,
+
+      // Optional overrides by building type key (only add when you actually want variance)
+      HP_MAX_BY_TYPE: {
+        BUNKER: 120,
+        HQ: 80,
+        SAFEHOUSE: 60,
+
+        TRANSFORMER_SUBSTATION: 80,
+        WATER_PLANT: 80,
+        ISP: 70,
+        LABORATORY: 70,
+      },
+
+      // Sub-systems inside a building cell (derived)
+      COMPONENT_MAX: {
+        fuseHp: 10,
+        waterHp: 10,
+        generatorHp: 0,
+      },
+
+      GENERATOR: {
+        INSTALLED_DEFAULT: false,
+      },
+
+      SEARCH: {
+        MAX_REMAINING_DEFAULT: 3,
+
+        // Optional overrides (only if you want variance)
+        MAX_REMAINING_BY_TYPE: {
+          // BUNKER: 5,
+          // LABORATORY: 4,
+        },
+
+        maxRemainingForBuildingType(type) {
+          const t = (type != null) ? String(type) : '';
+          const byType = this.MAX_REMAINING_BY_TYPE || {};
+          return Number.isFinite(byType[t])
+            ? Number(byType[t])
+            : Number(this.MAX_REMAINING_DEFAULT);
+        },
+      },
+
+      // Helper (single truth)
+      maxHpForBuildingType(type) {
+        const t = (type != null) ? String(type) : '';
+        return Number.isFinite(this.HP_MAX_BY_TYPE?.[t])
+          ? Number(this.HP_MAX_BY_TYPE[t])
+          : Number(this.HP_MAX_DEFAULT);
+      },
+    },
+  },
+};
+
 module.exports = {
   GRID,
   MAP,
   PLAYER,
   ZOMBIE,
   DISTRICTS,
+  WORLD,
 };

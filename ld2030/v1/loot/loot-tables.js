@@ -7,6 +7,7 @@ const { getItem } = require('../entity/items/catalog');
 const W = (kind, weight) => [kind, weight];
 
 // IMPORTANT: keys must match config-game.js MAP.BUILDING_TYPES exactly.
+// GATE E REQUIREMENT: use key `ISP` (not `RADIO_STATION`).
 const LOOT_TABLES = {
   HOUSE: [
     W('WATER_BOTTLE', 18),
@@ -265,8 +266,7 @@ const LOOT_TABLES = {
     W('HELMET', 7),
   ],
 
-  // Config key stays RADIO_STATION; gameplay name is ISP.
-  RADIO_STATION: [
+  ISP: [
     W('BATTERY', 20),
     W('TOOLKIT', 12),
     W('FUSE_KIT', 10),
@@ -302,7 +302,6 @@ const LOOT_TABLES = {
     W('WATER_BOTTLE', 6),
     W('CANNED_FOOD', 4),
   ],
-  
 };
 
 // Aliases for promoted building types (safe default tables)
@@ -310,7 +309,7 @@ LOOT_TABLES.APARTMENT = LOOT_TABLES.HOUSE;
 LOOT_TABLES.HOTEL = LOOT_TABLES.MOTEL;
 LOOT_TABLES.UNIVERSITY = LOOT_TABLES.SCHOOL;
 LOOT_TABLES.CLINIC = LOOT_TABLES.PHARMACY;
-LOOT_TABLES.HOSPITAL = LOOT_TABLES.LABORATORY; // swap later if you want a richer hospital table
+LOOT_TABLES.HOSPITAL = LOOT_TABLES.LABORATORY;
 
 function getWeightedLoot(buildingType) {
   const rows = LOOT_TABLES[buildingType] || [];

@@ -36,7 +36,7 @@ function generateMap({
   buildingChance = MAP.DEFAULT_BUILDING_CHANCE,
   minLabDistance = MAP.DEFAULT_MIN_LAB_DISTANCE,
 }) {
-  const { rows, lab, buildTiles } = generateCityLayout({
+  const { rows, lab, buildTiles, facilities } = generateCityLayout({
     seed,
     w,
     h,
@@ -93,9 +93,10 @@ function generateMap({
       'OUTPOST',
       'BUNKER',
       'HQ',
-      'RADIO_STATION',
+      'ISP',
       'LABORATORY',
       'TRANSFORMER_SUBSTATION',
+      'WATER_PLANT',
       'CHURCH',
     ],
   };
@@ -128,6 +129,56 @@ function generateMap({
       tileCount: tiles.length,
       floors,
     });
+  }
+
+  const facilityAssignments = [];
+  if (Array.isArray(facilities)) {
+    facilities.forEach((perDistrict) => {
+      if (!perDistrict || typeof perDistrict !== 'object') return;
+      Object.entries(perDistrict).forEach(([type, pos]) => {
+        if (!pos || typeof pos !== 'object') return;
+        const x = Number(pos.x);
+        const y = Number(pos.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+        facilityAssignments.push({
+          type: String(type || '').trim(),
+          x,
+          y,
+        });
+      });
+    });
+  }
+
+  if (facilityAssignments.length > 0) {
+    const coordToBuilding = new Map();
+    function indexBuilding(bld) {
+      const tiles = Array.isArray(bld.tiles) ? bld.tiles : [];
+      for (const t of tiles) {
+        const key = `${t.x},${t.y}`;
+        coordToBuilding.set(key, bld);
+      }
+    }
+    buildings.forEach(indexBuilding);
+
+    for (const fac of facilityAssignments) {
+      if (!fac.type) continue;
+      const key = `${fac.x},${fac.y}`;
+      let target = coordToBuilding.get(key);
+      if (!target) {
+        target = {
+          id: `fac_${fac.type}_${key}`,
+          type: fac.type,
+          root: { x: fac.x, y: fac.y },
+          tiles: [{ x: fac.x, y: fac.y }],
+          tileCount: 1,
+          floors: 1,
+        };
+        buildings.push(target);
+        indexBuilding(target);
+      } else {
+        target.type = fac.type;
+      }
+    }
   }
 
   // Assign districtId to every building (for UI outlines + gameplay)

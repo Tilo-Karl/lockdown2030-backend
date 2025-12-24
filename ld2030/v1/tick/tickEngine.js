@@ -1,38 +1,41 @@
 // ld2030/v1/tick/tickEngine.js
-// Tick engine: wires together player and zombie tick logic.
+// Tick engine: advance world tickIndex, then players, then zombies.
+// Tick constants come from ONE place: world/world-time.js
 
 const makePlayerTicker = require('./tick-player');
 const makeZombieTicker = require('./tick-zombies');
+const { TICK_LEN_SECONDS, TICKS_PER_DAY } = require('../world/world-time');
 
 function n(x, fallback = 0) {
   return (typeof x === 'number' && Number.isFinite(x)) ? x : fallback;
 }
 
-/**
- * Construct a TickEngine using the shared state reader + writer.
- */
 function makeTickEngine({ reader, writer }) {
   if (!reader) throw new Error('tick-engine: reader is required');
   if (!writer) throw new Error('tick-engine: writer is required');
+  if (typeof reader.getGame !== 'function') throw new Error('tick-engine: reader.getGame is required');
+  if (typeof writer.writeGameMeta !== 'function') throw new Error('tick-engine: writer.writeGameMeta is required');
 
   const playerTicker = makePlayerTicker({ reader, writer });
   const zombieTicker = makeZombieTicker({ reader, writer });
 
-  /**
-   * Orchestrate a full game tick: players first, then zombies.
-   * Expected shape: { gameId, now? }
-   * Returns a summary of what changed + full per-module breakdown.
-   */
   async function tickGame({ gameId, now } = {}) {
     if (!gameId) throw new Error('tick-engine: gameId is required for tickGame');
 
-    // Players first (AP/HP, round++, etc.)
-    const playerResult = await playerTicker.tickPlayer({ gameId, now });
+    const game = await reader.getGame(gameId);
+    const prevTickIndex = Number.isFinite(game?.tickIndex) ? Number(game.tickIndex) : 0;
+    const tickIndex = prevTickIndex + 1;
 
-    // Then zombies (movement, doors/stairs hits, attacks, etc.)
+    await writer.writeGameMeta(gameId, {
+      tickIndex,
+      tickLenSeconds: TICK_LEN_SECONDS,
+      ticksPerDay: TICKS_PER_DAY,
+      lastTickAt: now || new Date().toISOString(),
+    });
+
+    const playerResult = await playerTicker.tickPlayer({ gameId, now, tickIndex });
     const zombieResult = await zombieTicker.tickZombies({ gameId, now });
 
-    // Keep old compact fields for compatibility
     const playersUpdated = n(playerResult?.playersUpdated, 0);
     const zombiesMoved   = n(zombieResult?.zombiesMoved, n(zombieResult?.updated, 0));
     const zombiesTotal   = n(zombieResult?.zombiesTotal, n(zombieResult?.total, 0));
@@ -40,13 +43,12 @@ function makeTickEngine({ reader, writer }) {
     return {
       ok: true,
       gameId,
-
-      // Back-compat summary
+      tickIndex,
+      tickLenSeconds: TICK_LEN_SECONDS,
+      ticksPerDay: TICKS_PER_DAY,
       playersUpdated,
       zombiesMoved,
       zombiesTotal,
-
-      // NEW: full breakdowns (so you can see doors/stairs/player hits without guessing)
       player: playerResult || null,
       zombies: zombieResult || null,
     };
@@ -59,6 +61,4 @@ function makeTickEngine({ reader, writer }) {
   };
 }
 
-module.exports = {
-  makeTickEngine,
-};
+module.exports = { makeTickEngine };

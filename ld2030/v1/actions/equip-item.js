@@ -1,23 +1,31 @@
 // ld2030/v1/actions/equip-item.js
-// HTTP -> router action. No game logic here.
+// POST /equip-item
+// Uses action-router helpers (not engine.processAction).
 
-module.exports = function registerEquipItem(app, { engine, base }) {
-  if (!app) throw new Error('registerEquipItem: app is required');
-  if (!engine?.router) throw new Error('registerEquipItem: engine.router is required');
-  if (!base) throw new Error('registerEquipItem: base is required');
+module.exports = function registerEquipItem(app, { actions, base } = {}) {
+  if (!app) throw new Error('equip-item: app is required');
+  if (!actions || typeof actions.handleEquipItem !== 'function') {
+    throw new Error('equip-item: actions.handleEquipItem is required');
+  }
 
-  app.post(`${base}/equip-item`, async (req, res) => {
+  const BASE = String(base || '').trim();
+  if (!BASE) throw new Error('equip-item: base is required');
+
+  app.post(`${BASE}/equip-item`, async (req, res) => {
     try {
-      const { uid, itemId, gameId = 'lockdown2030' } = req.body || {};
-      if (!uid) return res.status(400).json({ ok: false, error: 'missing_uid' });
-      if (!itemId) return res.status(400).json({ ok: false, error: 'missing_itemId' });
+      const body = req.body || {};
+      const uid = String(body.uid || '').trim();
+      const gameId = String(body.gameId || 'lockdown2030').trim();
+      const itemId = String(body.itemId || '').trim();
 
-      // action-router must expose: handleEquipItem({ uid, itemId, gameId })
-      const result = await engine.router.handleEquipItem({ uid, itemId, gameId });
+      if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+      if (!itemId) return res.status(400).json({ ok: false, error: 'itemId_required' });
+
+      const result = await actions.handleEquipItem({ uid, gameId, itemId });
       return res.json(result);
     } catch (e) {
       console.error('equip-item error', e);
-      return res.status(400).json({ ok: false, error: String(e?.message || e) });
+      return res.status(400).json({ ok: false, error: String(e?.message || 'equip_failed') });
     }
   });
 };

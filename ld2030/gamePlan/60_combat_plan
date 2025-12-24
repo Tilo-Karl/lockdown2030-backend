@@ -1,0 +1,290 @@
+# Lockdown 2030 — Combat + Events Feed Attack Plan (V1)
+(Dependency-Ordered, Fixed-Size Log, **single-tx truth**, **stable paging**)
+
+## Goal
+- Centralize combat math in one module.
+- Emit combat results into a single events feed the frontend can poll.
+- Keep the feed bounded (e.g. last 25 events) by deleting deterministically (no scans, no sharding).
+- **Atomicity rule:** state changes (HP/AP/durability) and event emission happen in the **same Firestore transaction**.
+- **Feed contract rule:** events are ordered by `seq` and paged by `beforeSeq` (no timestamps paging).
+
+---
+
+## Event feed architecture (bounded, no sharding)
+
+### Storage
+- Events: `games/{gameId}/events/e_<seq>`
+- Counter/meta: `games/{gameId}/eventMeta/feed` → `{ nextSeq: number }`
+
+### Retention
+- Keep `MAX_KEEP = 25`
+- On append of seq `N`, delete `e_<N - MAX_KEEP>` in the same transaction (only if `N > MAX_KEEP`).
+- Result: events never grow beyond ~25 docs, forever.
+
+### Ordering + paging contract (DECIDE NOW, NEVER CHANGE)
+- `seq` is strictly increasing (1, 2, 3…).
+- “Latest feed” query is: `orderBy('seq','desc')`
+- Paging:
+  - Request: `beforeSeq=<number>`
+  - Meaning: “give me events with `seq < beforeSeq`”
+  - Implementation: add `where('seq','<',beforeSeq)` + `orderBy('seq','desc')`
+
+This is stable and avoids timestamp edge cases.
+
+### Event schema (minimal, frontend-friendly)
+Each event doc:
+- `seq` (number) — **authoritative feed order**
+- `ts` (serverTimestamp)
+- `type` (e.g. `combat.attack`, `combat.hit`, `combat.miss`, `combat.kill`)
+- `messageKey` (stable string key)
+- `args` (object; **small JSON only**)
+- `actorId`, `targetId` (optional)
+- `pos` (optional `{x,y,z,layer}`)
+
+Frontend maps `messageKey + args` → localized string (same pattern you’ll use later for doors/search/objectives).
+
+**Rule:** do NOT emit pre-formatted English text into events. Only `messageKey+args`.
+
+---
+
+## Touch order (do these in this order so you don’t have to go back)
+
+### 0) Constants first (everyone imports these)
+
+**NEW**
+- `ld2030/v1/events/event-constants.js`
+  - exports:
+    - `MAX_KEEP = 25`
+    - `DEFAULT_LIMIT = 25`, `MAX_LIMIT = 50` (for endpoint clamp)
+    - `EVENT_TYPES` (combat.* strings)
+    - `MESSAGE_KEYS` (stable keys)
+
+**NEW**
+- `ld2030/v1/combat/combat.js`
+  - deterministic helpers used by writers/tick:
+    - `computeHitChance({ baseHit, weaponBonus })` → clamps to [0..1]
+    - `rollHit(rng, hitChance)` → `rng()` injected
+    - `computeDamage({ rawDamage, armor })` → `max(0, rawDamage - armor)`
+    - `applyDamageToActor({ currentHp, damage })` → `{ nextHp, isAlive, isDowned }`
+    - `applyDamageToItem({ currentDurability, damage, destructible })` → `{ nextDurability, broken }`
+
+**Improvement rule:** combat.js must contain **zero Firestore**. Pure math only.
+
+---
+
+### 1) State path helpers (so no one invents Firestore paths)
+
+**MODIFY**
+- `ld2030/v1/state/state.js`
+  - add helpers:
+    - `eventsCol(gameId)`
+    - `eventMetaDoc(gameId)` → `games/{gameId}/eventMeta/feed`
+
+---
+
+### 2) Writer: bounded event append (core dependency)
+
+**NEW** (tx-aware; must support “meta doc missing” in the tx)
+- **Option A (recommended, matches your repo style):**
+  - `ld2030/v1/engine/state-writer-events.js` - we do option A.
+- **Option B:**
+  - `ld2030/v1/state/state-writer-events.js`
+
+Exports `makeEventsWriter({ db, admin, state })` with:
+
+- **Required:** `appendEventsTx(tx, { gameId, events })`
+  - `tx.get(eventMetaDoc(gameId))`
+  - if missing → treat `nextSeq = 1` (NO separate create step)
+  - allocate seqs
+  - `tx.set(events/e_<seq>, {...})`
+  - delete `events/e_<seq - MAX_KEEP>` (if seq > MAX_KEEP)
+  - `tx.set(eventMetaDoc, { nextSeq: nextAfter }, { merge:true })`
+
+- **Optional convenience:** `appendEvents({ gameId, events })`
+  - wraps a single `db.runTransaction(tx => appendEventsTx(tx,...))`
+  - **only used when caller is not already in a tx**
+
+**MODIFY**
+- `ld2030/v1/engine/state-writer.js`
+  - create and merge events writer into the returned writer object:
+    - `...events`
+  - so gameplay writers can call `writer.appendEventsTx(tx, ...)` cleanly.
+
+✅ This keeps “separate module” AND “single transaction truth”.
+
+---
+
+### 3) Reader: list event feed (HTTP depends on this)
+
+**MODIFY**
+- `ld2030/v1/state/state-reader.js`
+  - add:
+    - `listEvents(gameId, { limit = DEFAULT_LIMIT, beforeSeq = null })`
+  - Implementation rules:
+    - clamp `limit` to `[1..MAX_LIMIT]`
+    - query `events`:
+      - `orderBy('seq','desc')`
+      - if `beforeSeq`: `where('seq','<',beforeSeq)`
+      - `limit(limit)`
+
+---
+
+### 4) HTTP endpoint for frontend feed (depends on reader)
+
+**NEW**
+- `ld2030/v1/actions/events.js`
+  - `GET ${BASE}/events?gameId=...&limit=...&beforeSeq=...`
+  - response shape (stable):
+    - `{ ok:true, gameId, events:[ {seq,ts,type,messageKey,args,actorId,targetId,pos} ] }`
+
+**MODIFY**
+- `ld2030/v1/actions/index.js`
+  - register the new `events` endpoint.
+
+**Improvement:** endpoint should be GET-only; never mutate. (Keeps it cacheable later.)
+
+---
+
+### 5) Refactor attack writer to use combat.js + emit events (core gameplay change)
+
+**MODIFY**
+- `ld2030/v1/engine/state-writer-attack.js`
+  - replace inline combat math with:
+    - `combat.computeHitChance`
+    - `combat.rollHit`
+    - `combat.computeDamage`
+    - `combat.applyDamageToActor / applyDamageToItem`
+  - RNG rule:
+    - keep `Math.random()` for now, but route it through `rollHit(() => Math.random(), hitChance)`
+    - (later you can inject seeded rng for tick/tests without rewriting logic)
+
+  - Inside the existing `db.runTransaction(async (tx) => { ... })`:
+    - compute hit/miss + effective damage
+    - apply doc writes (attacker AP, target HP/durability)
+    - emit 2–3 events in the **same tx** via `writer.appendEventsTx(tx, ...)`:
+      - always: `combat.attack` (attempt)
+      - then: `combat.hit` or `combat.miss`
+      - optionally: `combat.kill` if target drops to 0/alive=false
+
+**Event args recommendation (consistent, small):**
+- attempt: `{ weaponKind, apCost }` (if you have it)
+- hit: `{ damage, effectiveDamage, targetHpAfter }`
+- miss: `{}` or `{ hitChance }` (optional)
+- kill: `{}`
+
+**Explicitly NOT changed**
+- `ld2030/v1/actions/attack-entity.js` (route is fine and stays)
+
+---
+
+### 6) Tick damage callers (same combat math) — do right after #5
+
+**MODIFY** (only files that compute/apply damage)
+- `ld2030/v1/tick/*` wherever zombies/NPCs compute/apply damage
+  - swap ad-hoc damage math to use `ld2030/v1/combat/combat.js`
+
+**Optional (choose now or later):**
+- Emit tick combat events into the same feed using `appendEventsTx`.
+- If you want tick quiet initially: don’t emit yet—just unify math.
+
+---
+
+### 7) Init seed (optional but clean)
+
+**MODIFY (optional)**
+- `ld2030/v1/init-game.js`
+  - create `games/{gameId}/eventMeta/feed` with `{ nextSeq: 1 }` if missing
+
+Not required if writer auto-creates meta in-tx (it will), but nice for “fresh game UI”.
+
+---
+
+## Complete file ledger (everything touched/created)
+
+### NEW files
+- `ld2030/v1/events/event-constants.js`
+- `ld2030/v1/combat/combat.js`
+- `ld2030/v1/actions/events.js`
+- **Events writer (choose one location):**
+  - Option A: `ld2030/v1/engine/state-writer-events.js` ✅ recommended
+  - Option B: `ld2030/v1/state/state-writer-events.js`
+
+### MODIFIED files
+- `ld2030/v1/state/state.js` (add `eventsCol`, `eventMetaDoc`)
+- `ld2030/v1/state/state-reader.js` (add `listEvents`)
+- `ld2030/v1/actions/index.js` (register `/events`)
+- `ld2030/v1/engine/state-writer.js` (merge events writer)
+- `ld2030/v1/engine/state-writer-attack.js` (route math through `combat.js` + emit events in-tx)
+- `ld2030/v1/tick/*` damage callers (only those that compute/apply damage)
+- `ld2030/v1/init-game.js` (optional seed)
+
+### Explicitly NOT changed
+- `ld2030/v1/actions/attack-entity.js` (stays as-is)
+- `ld2030/v1/engine/engine.js` (already calls `writer.attackEntity`)
+
+---
+
+## Two hard rules (so we don’t “almost” implement this)
+1) **No event writes outside a transaction** when paired with HP/AP/durability changes.
+2) **No timestamp paging**. Paging is by `seq` only (`beforeSeq`).
+
+Straight forward concrete plan: Round 1 (best first): build the plumbing, no gameplay yet (6–8 files)
+
+Goal: Events feed exists end-to-end, but attack doesn’t emit yet.
+
+NEW
+	1.	ld2030/v1/events/event-constants.js
+	2.	ld2030/v1/combat/combat.js
+	3.	ld2030/v1/engine/state-writer-events.js (Option A)
+	4.	ld2030/v1/actions/events.js
+
+MODIFY
+5) ld2030/v1/state/state.js (eventsCol, eventMetaDoc)
+6) ld2030/v1/state/state-reader.js (listEvents)
+7) ld2030/v1/actions/index.js (register /events)
+8) ld2030/v1/engine/state-writer.js (merge events writer)
+
+Optional (only if you want it now):
+9) ld2030/v1/init-game.js (seed eventMeta)
+
+That’s 8–9 files. After this round, your frontend can already call GET /events and get an empty list cleanly.
+
+What I need from you for Round 1
+
+Paste these files (exact current contents):
+	•	ld2030/v1/state/state.js
+	•	ld2030/v1/state/state-reader.js
+	•	ld2030/v1/actions/index.js
+	•	ld2030/v1/engine/state-writer.js
+	•	(optional) ld2030/v1/init-game.js
+	•	Also tell me your base path string for actions (looks like /api/ld2030/v1) if it’s centralized somewhere—usually it’s already handled in actions/index.js.
+
+⸻
+
+Round 2: wire combat into attack + emit events (1 file, maybe 2)
+
+Goal: Attack becomes the first producer of events.
+
+MODIFY
+	1.	ld2030/v1/engine/state-writer-attack.js (combat.js + appendEventsTx inside same tx)
+
+Explicitly not touched: ld2030/v1/actions/attack-entity.js
+
+What I need from you for Round 2
+
+Paste:
+	•	ld2030/v1/engine/state-writer-attack.js (full file)
+
+(You already pasted it earlier, but I want the exact current version you have locally right now.)
+
+⸻
+
+Round 3: tick damage callers use combat.js (≤10, only the ones with damage math)
+
+Goal: tick uses the same damage math. Emitting events from tick is optional.
+
+What I need from you for Round 3
+
+Paste the specific tick files where damage is computed/applied (max 10). Based on your repo structure, likely candidates:
+	•	ld2030/v1/tick/tick-zombies.js
+	•	any helper it calls for attacks / barrier hits / damage application

@@ -2,14 +2,14 @@
 
 const { BASE_ENTITY } = require('./base-entity');
 
-// Actors = anything that acts in the tick loop (humans, zombies).
+// Actors = anything that acts in gameplay (humans, zombies).
 // Player is NOT a type. It's an actor with isPlayer: true.
 //
-// NOTE:
-// - Templates define defaults + caps.
-// - Runtime docs store currentHp/currentAp, equipment refs, and inventory item ids.
-// - Derived stats (armor/moveApCost/maxHp/attackDamage/attackApCost/hitChance/carryCap/encumbered)
-//   are written by services (equipment/inventory) based on templates + equipped items.
+// Master-plan invariants for runtime docs:
+// - pos ALWAYS exists: { x, y, z, layer }  (layer: 0=outside, 1=inside)
+// - meters exist on the doc (even if some actors don't use them): hunger/hydration/stress
+// - downed fields are: isDowned + downedAt  (NOT "downed")
+// - currentHp/currentAp exist
 const BASE_ACTOR = {
   ...BASE_ENTITY,
 
@@ -26,14 +26,27 @@ const BASE_ACTOR = {
   faction: 'neutral',
   hostileTo: [],
 
+  // Position is always present on actor docs
+  pos: { x: 0, y: 0, z: 0, layer: 0 },
+
   alive: true,
-  downed: false,
+
+  // Downed schema (master-plan)
+  isDowned: false,
+  downedAt: null,
+
+  // Optional lifecycle (useful for NPCs/zombies; harmless for players)
   despawnAt: null,
 
   maxHp: 1,
   maxAp: 0,
   currentHp: 1,
   currentAp: 0,
+
+  // Meters (master-plan)
+  hunger: 0,
+  hydration: 0,
+  stress: 0,
 
   // Derived-on-doc (recomputed after equip / pickup / drop)
   moveApCost: 1,

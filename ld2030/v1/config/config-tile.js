@@ -1,29 +1,14 @@
-// ld2030/v1/config-tile.js
 // Centralized tile (terrain) definitions for Lockdown 2030 backend.
-//
-// Tiles are the ground layer the map generator uses (roads, water, forest…).
-// Buildings (HOUSE, SHOP, LAB, etc.) sit on top of BUILD tiles.
 
-/**
- * Symbolic names → tile codes used in the terrain 2D array.
- * These codes are what map-gen writes and clients read.
- */
 const TILES = {
-  ROAD:     '0', // streets, cheap AP
-  BUILD:    '1', // building footprints (where houses, shops, etc. live)
-  CEMETERY: '2', // outdoor graveyard terrain
-  PARK:     '3', // open green area, walkable
-  FOREST:   '4', // dense area, maybe LOS penalty / slower
-  WATER:    '5', // swim / high AP cost (NOT blocked yet)
+  ROAD:     '0',
+  BUILD:    '1',
+  CEMETERY: '2',
+  PARK:     '3',
+  FOREST:   '4',
+  WATER:    '5',
 };
 
-/**
- * Per-tile metadata keyed by tile code ("0", "1", …).
- * This is the single source of truth for labels, colors, and basic rules.
- *
- * You can safely add more fields later (moveCost, blocksVision, etc.)
- * without breaking existing code.
- */
 const TILE_META = {
   [TILES.ROAD]: {
     key: 'ROAD',
@@ -34,19 +19,19 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: false,
-    // moveCost: 1,
+    moveCost: 1,
   },
 
   [TILES.BUILD]: {
     key: 'BUILD',
     label: 'Building base',
     colorHex: '#6B7280',
-    blocksMovement: false, // buildings themselves live on top of this
+    blocksMovement: false,
     blocksVision: false,
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: false,
-    // moveCost: 1,
+    moveCost: 1,
   },
 
   [TILES.CEMETERY]: {
@@ -58,7 +43,7 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: true,
-    // moveCost: 1,
+    moveCost: 1,
   },
 
   [TILES.PARK]: {
@@ -70,38 +55,34 @@ const TILE_META = {
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: true,
-    // moveCost: 1,
+    moveCost: 1,
   },
 
   [TILES.FOREST]: {
     key: 'FOREST',
     label: 'Forest',
     colorHex: '#166534',
-    blocksMovement: false,   // movement rules can use this later
-    blocksVision: true,      // LOS penalty knob for future
+    blocksMovement: false,
+    blocksVision: true,
     playerSpawnAllowed: true,
     zombieSpawnAllowed: true,
     natural: true,
-    // moveCost: 2, // optional future knob
+    moveCost: 2,
   },
 
   [TILES.WATER]: {
     key: 'WATER',
     label: 'Water',
     colorHex: '#0EA5E9',
-    blocksMovement: false,   // NOT blocked yet (you said you can swim)
+    blocksMovement: false,   // swim allowed (V1)
     blocksVision: false,
     playerSpawnAllowed: false,
     zombieSpawnAllowed: false,
     natural: true,
-    // moveCost: 3, // optional future knob: swimming is expensive
+    moveCost: 3,
   },
 };
 
-/**
- * Convenience lists derived from meta. These mirror what you had in MAP
- * (NATURAL_TILES / SPAWN_AVOID) but live next to the tile definitions.
- */
 const NATURAL_TILE_KEYS = Object.values(TILES).filter((code) => {
   return TILE_META[code]?.natural;
 });

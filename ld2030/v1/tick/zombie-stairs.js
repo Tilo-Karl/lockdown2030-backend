@@ -1,95 +1,169 @@
 // ld2030/v1/tick/zombie-stairs.js
+// Zombie stairs helpers for tick.
+// IMPORTANT (LOCKED):
+// - isDestroyed is truth for “barricade is gone / does not block”
+// - NO isBroken anywhere
+// - edgeId is Big Bang e_* (inside cell z <-> z+1, layer=1)
 
-const { STAIRS } = require('../config');
+const { STAIRS } = require('../config/config-stairs');
 
-// Convention: barricade doc is keyed by the *edge floor* between z and z+1.
-// So moving between floors a<->b uses edgeZ = min(a,b).
-function stairIdForEdge(x, y, edgeZ) {
-  return `s_${x}_${y}_${edgeZ}`;
+function nInt(x, fallback = 0) {
+  const v = Number(x);
+  return Number.isFinite(v) ? Math.trunc(v) : fallback;
 }
 
-function stairDefaults(x, y, edgeZ) {
+function clamp(n, min, max) {
+  return Math.min(Math.max(n, min), max);
+}
+
+function endpointKey(p) {
+  return `${p.x}_${p.y}_${p.z}_${p.layer}`;
+}
+
+function normEndpoint(p) {
   return {
-    stairId: stairIdForEdge(x, y, edgeZ),
-    x,
-    y,
-    z: edgeZ, // edge floor index
-    isOpen: false,
-    barricadeLevel: 0,
-    broken: false,
-    hp: 0,
+    x: Number(p.x),
+    y: Number(p.y),
+    z: Number(p.z),
+    layer: Number(p.layer),
   };
 }
 
-function mergeStair(x, y, edgeZ, raw) {
-  return raw ? { ...stairDefaults(x, y, edgeZ), ...raw } : null; // null means "no stair doc"
+function edgeIdFor(a, b) {
+  const A = normEndpoint(a);
+  const B = normEndpoint(b);
+  const ka = endpointKey(A);
+  const kb = endpointKey(B);
+  const left = (ka <= kb) ? A : B;
+  const right = (ka <= kb) ? B : A;
+  return `e_${endpointKey(left)}__${endpointKey(right)}`;
 }
 
-function isStairBlockingZombie(s) {
-  if (!s) return false; // no stair doc => no block
-  if (s.broken === true) return false;
-  if (s.isOpen === true) return false;
-  return true; // closed blocks
+function insideEndpoint(x, y, z) {
+  return { x, y, z, layer: 1 };
 }
 
-function computeStairHp(s) {
-  const existing = Number.isFinite(s?.hp) ? Number(s.hp) : 0;
-  if (existing > 0) return existing;
-
-  const baseHp = Number.isFinite(STAIRS?.BASE_HP) ? Number(STAIRS.BASE_HP) : 3;
-
-  const perBarr =
-    Number.isFinite(STAIRS?.HP_PER_BARRICADE_LEVEL)
-      ? Number(STAIRS.HP_PER_BARRICADE_LEVEL)
-      : 3;
-
-  const lvl = Number.isFinite(s?.barricadeLevel) ? Number(s.barricadeLevel) : 0;
-
-  return Math.max(1, baseHp + Math.max(0, lvl) * perBarr);
+function stairsEdgeIdFor(x, y, zLo) {
+  return edgeIdFor(insideEndpoint(x, y, zLo), insideEndpoint(x, y, zLo + 1));
 }
 
-function stairDamageFromCfg(cfg) {
+function stairsEndpointsFor(x, y, zLo) {
+  const zHi = zLo + 1;
+  const a = insideEndpoint(x, y, zLo);
+  const b = insideEndpoint(x, y, zHi);
+  return {
+    kind: 'stairs',
+    a,
+    b,
+    x,
+    y,
+    zLo,
+    zHi,
+    fromCellId: `c_${x}_${y}_${zLo}_1`,
+    toCellId: `c_${x}_${y}_${zHi}_1`,
+  };
+}
+
+function maxHpForLevel(level) {
+  const lvl = clamp(nInt(level, 0), 0, nInt(STAIRS.MAX_BARRICADE_LEVEL, 5));
+  if (lvl <= 0) return 0;
+  const base = nInt(STAIRS.BASE_HP, 0);
+  const per = nInt(STAIRS.HP_PER_LEVEL, 12);
+  return Math.max(0, base + (lvl * per));
+}
+
+function computeStairsHp(e) {
+  return maxHpForLevel(nInt(e?.barricadeLevel, 0));
+}
+
+function isDestroyedStairs(e) {
+  const hp = Number.isFinite(e?.hp) ? Number(e.hp) : null;
+  return e?.isDestroyed === true || (hp != null && hp <= 0);
+}
+
+function mergeStairsEdge(x, y, zLo, raw) {
+  const base = {
+    edgeId: stairsEdgeIdFor(x, y, zLo),
+    kind: 'stairs',
+    x,
+    y,
+    zLo,
+    zHi: zLo + 1,
+
+    a: insideEndpoint(x, y, zLo),
+    b: insideEndpoint(x, y, zLo + 1),
+
+    barricadeLevel: 0,
+    isDestroyed: false,
+
+    // hp=null => initialize to maxHp (when barricadeLevel>0)
+    // hp=0 => destroyed truth
+    hp: null,
+  };
+
+  const e = (raw && typeof raw === 'object') ? { ...base, ...raw } : { ...base };
+
+  e.kind = 'stairs';
+
+  e.a = normEndpoint((e.a && typeof e.a === 'object') ? e.a : base.a);
+  e.b = normEndpoint((e.b && typeof e.b === 'object') ? e.b : base.b);
+  e.edgeId = edgeIdFor(e.a, e.b);
+
+  e.x = nInt(e.x, x);
+  e.y = nInt(e.y, y);
+  e.zLo = nInt(e.zLo, zLo);
+  e.zHi = nInt(e.zHi, zLo + 1);
+
+  e.barricadeLevel = clamp(nInt(e.barricadeLevel, 0), 0, nInt(STAIRS.MAX_BARRICADE_LEVEL, 5));
+  e.isDestroyed = e.isDestroyed === true;
+
+  // No barricade => unblocked, not destroyed.
+  if (e.barricadeLevel <= 0) {
+    e.barricadeLevel = 0;
+    e.isDestroyed = false;
+    e.hp = 0;
+    return e;
+  }
+
+  if (isDestroyedStairs(e)) {
+    e.isDestroyed = true;
+    e.barricadeLevel = 0;
+    e.hp = 0;
+    return e;
+  }
+
+  const maxHp = maxHpForLevel(e.barricadeLevel);
+  const curHp = Number.isFinite(e.hp) ? nInt(e.hp, maxHp) : maxHp;
+  e.hp = clamp(curHp, 0, maxHp);
+
+  if (e.hp <= 0) {
+    e.isDestroyed = true;
+    e.barricadeLevel = 0;
+    e.hp = 0;
+  }
+
+  return e;
+}
+
+function isStairsBlockingZombie(e) {
+  if (!e) return false;
+  if (isDestroyedStairs(e)) return false;
+  return nInt(e.barricadeLevel, 0) > 0;
+}
+
+function stairsDamageFromCfg(cfg) {
   const dmg =
-    (Number.isFinite(cfg?.stairDamage) ? Number(cfg.stairDamage) : null) ??
-    (Number.isFinite(cfg?.doorDamage) ? Number(cfg.doorDamage) : null) ??
-    (Number.isFinite(cfg?.attackDamage) ? Number(cfg.attackDamage) : null) ??
-    1;
-  return Math.max(1, Math.trunc(dmg));
-}
-
-// IO adapters (supports whatever names you already used in reader/writer)
-function makeStairIO({ reader, writer }) {
-  async function readStair(gameId, stairId) {
-    if (typeof reader.getStair === 'function') return reader.getStair(gameId, stairId);
-    if (typeof reader.getStairs === 'function') return reader.getStairs(gameId, stairId);
-    if (typeof reader.getStairBarricade === 'function') return reader.getStairBarricade(gameId, stairId);
-
-    if (typeof reader.stairsCol === 'function') {
-      const ref = reader.stairsCol(gameId)?.doc?.(stairId);
-      if (ref && typeof ref.get === 'function') {
-        const snap = await ref.get();
-        return snap.exists ? (snap.data() || {}) : null;
-      }
-    }
-    return null;
-  }
-
-  async function writeStair(gameId, stairId, data) {
-    if (typeof writer.updateStair === 'function') return writer.updateStair(gameId, stairId, data);
-    if (typeof writer.updateStairs === 'function') return writer.updateStairs(gameId, stairId, data);
-    if (typeof writer.updateStairBarricade === 'function') return writer.updateStairBarricade(gameId, stairId, data);
-    return { ok: false, skipped: true };
-  }
-
-  return { readStair, writeStair };
+    Number.isFinite(cfg?.stairsDamage) ? Number(cfg.stairsDamage) :
+    Number.isFinite(cfg?.attackDamage) ? Number(cfg.attackDamage) :
+    2;
+  return Math.max(0, Math.trunc(dmg));
 }
 
 module.exports = {
-  stairIdForEdge,
-  stairDefaults,
-  mergeStair,
-  isStairBlockingZombie,
-  computeStairHp,
-  stairDamageFromCfg,
-  makeStairIO,
+  stairsEdgeIdFor,
+  stairsEndpointsFor,
+  mergeStairsEdge,
+  isStairsBlockingZombie,
+  computeStairsHp,
+  stairsDamageFromCfg,
 };
