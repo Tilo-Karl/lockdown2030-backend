@@ -6,7 +6,7 @@
 // - edges/* (doors + stairs)
 // - districtState/*
 
-const { GRID, MAP } = require('./config');
+const { GRID, MAP, DOOR } = require('./config');
 
 const { initWorldTimeDoc } = require('./world/world-time');
 const { cellIdFor, writeOutsideCells, writeInsideCells } = require('./world/cells');
@@ -120,6 +120,7 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
         admin,
         edgesCol,
         mapMeta,
+        baseDoorHp: DOOR.BASE_HP,
       });
 
       const stairs = await writeStairsEdges({
