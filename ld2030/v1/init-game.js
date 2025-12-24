@@ -161,8 +161,15 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
       });
 
     } catch (e) {
+      // Always return real error details for debugging.
       console.error('init-game error', e);
-      return res.status(500).json({ ok: false, error: 'internal' });
+      return res.status(500).json({
+        ok: false,
+        error: 'internal',
+        name: String(e?.name || ''),
+        message: String(e?.message || e),
+        stack: String(e?.stack || ''),
+      });
     }
   });
 };
