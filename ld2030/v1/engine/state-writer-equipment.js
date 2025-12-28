@@ -5,28 +5,16 @@
 // - Applies the patch computed by equipment-service
 // No derived-stat computation here.
 
+const makeTx = require('./tx');
+const { listIdsDeep, findActorByIdTx } = require('./actor-tx-helpers');
+
 module.exports = function makeEquipmentWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-equipment: db is required');
   if (!admin) throw new Error('state-writer-equipment: admin is required');
   if (!state) throw new Error('state-writer-equipment: state is required');
 
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
-
-  function listIdsDeep(equipment) {
-    const ids = [];
-    const walk = (v) => {
-      if (!v) return;
-      if (typeof v === 'string') {
-        ids.push(v);
-        return;
-      }
-      if (typeof v === 'object' && !Array.isArray(v)) {
-        for (const vv of Object.values(v)) walk(vv);
-      }
-    };
-    walk(equipment || {});
-    return Array.from(new Set(ids.filter(Boolean)));
-  }
+  const tx = makeTx({ db, admin });
+  const { run, setWithUpdatedAt } = tx;
 
   // Mimic Firestore merge:true for nested equipment maps (1-level deep merge)
   function mergeEquipment(currentEq, patchEq) {
@@ -47,21 +35,6 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
       }
     }
     return out;
-  }
-
-  async function findActorByIdTx(tx, gameId, actorId) {
-    const cols = [
-      state.playersCol(gameId),
-      state.humansCol(gameId),
-      state.zombiesCol(gameId),
-    ];
-
-    for (const col of cols) {
-      const ref = col.doc(actorId);
-      const snap = await tx.get(ref);
-      if (snap.exists) return { ref, data: snap.data() || {} };
-    }
-    return null;
   }
 
   function getSlotNode(equipment, item) {
@@ -87,11 +60,11 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
 
     const itemRef = state.itemsCol(gameId).doc(itemId);
 
-    await db.runTransaction(async (tx) => {
-      const actorInfo = await findActorByIdTx(tx, gameId, actorId);
+    await run('equipItem', async (txn) => {
+      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
       if (!actorInfo) throw new Error('equipItem: actor_not_found');
 
-      const itemSnap = await tx.get(itemRef);
+      const itemSnap = await txn.get(itemRef);
       if (!itemSnap.exists) throw new Error('equipItem: item_not_found');
 
       const actorRef = actorInfo.ref;
@@ -124,7 +97,7 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
       if (!equippedAfter.includes(itemId)) throw new Error('equipItem: patch_does_not_equip_item');
       if (equippedAfter.length !== new Set(equippedAfter).size) throw new Error('equipItem: duplicate_equipped_ids');
 
-      tx.set(actorRef, { ...patch, updatedAt: serverTs() }, { merge: true });
+      setWithUpdatedAt(txn, actorRef, patch);
     });
 
     return { ok: true };
@@ -136,11 +109,11 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
 
     const itemRef = state.itemsCol(gameId).doc(itemId);
 
-    await db.runTransaction(async (tx) => {
-      const actorInfo = await findActorByIdTx(tx, gameId, actorId);
+    await run('unequipItem', async (txn) => {
+      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
       if (!actorInfo) throw new Error('unequipItem: actor_not_found');
 
-      const itemSnap = await tx.get(itemRef);
+      const itemSnap = await txn.get(itemRef);
       if (!itemSnap.exists) throw new Error('unequipItem: item_not_found');
 
       const actorRef = actorInfo.ref;
@@ -159,7 +132,7 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
       const equippedAfter = listIdsDeep(equipmentAfter);
       if (equippedAfter.includes(itemId)) throw new Error('unequipItem: patch_does_not_unequip_item');
 
-      tx.set(actorRef, { ...patch, updatedAt: serverTs() }, { merge: true });
+      setWithUpdatedAt(txn, actorRef, patch);
     });
 
     return { ok: true };

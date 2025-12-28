@@ -5,39 +5,16 @@
 // - Updates BOTH actor doc and item doc in the same transaction.
 // - Enforces: cannot drop equipped items; pickup requires item on your tile.
 
+const makeTx = require('./tx');
+const { listIdsDeep, findActorByIdTx } = require('./actor-tx-helpers');
+
 module.exports = function makeInventoryWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-inventory: db is required');
   if (!admin) throw new Error('state-writer-inventory: admin is required');
   if (!state) throw new Error('state-writer-inventory: state is required');
 
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
-
-  async function findActorByIdTx(tx, gameId, actorId) {
-    const cols = [
-      state.playersCol(gameId),
-      state.humansCol(gameId),
-      state.zombiesCol(gameId),
-    ];
-    for (const col of cols) {
-      const ref = col.doc(actorId);
-      const snap = await tx.get(ref);
-      if (snap.exists) return { ref, data: snap.data() || {} };
-    }
-    return null;
-  }
-
-  function listIdsDeep(equipment) {
-    const ids = [];
-    const walk = (v) => {
-      if (!v) return;
-      if (typeof v === 'string') { ids.push(v); return; }
-      if (typeof v === 'object' && !Array.isArray(v)) {
-        for (const vv of Object.values(v)) walk(vv);
-      }
-    };
-    walk(equipment || {});
-    return Array.from(new Set(ids.filter(Boolean)));
-  }
+  const txHelpers = makeTx({ db, admin });
+  const { run, setWithUpdatedAt } = txHelpers;
 
   function samePos(a, b) {
     if (!a || !b) return false;
@@ -56,11 +33,11 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
 
     const itemRef = state.itemsCol(gameId).doc(itemId);
 
-    await db.runTransaction(async (tx) => {
-      const actorInfo = await findActorByIdTx(tx, gameId, actorId);
+    await run('pickupItem', async (txn) => {
+      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
       if (!actorInfo) throw new Error('pickupItem: actor_not_found');
 
-      const itemSnap = await tx.get(itemRef);
+      const itemSnap = await txn.get(itemRef);
       if (!itemSnap.exists) throw new Error('pickupItem: item_not_found');
 
       const actorRef = actorInfo.ref;
@@ -83,8 +60,8 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
       if (patchItem.carriedBy !== actorId) throw new Error('pickupItem: patchItem_missing_carriedBy');
       if (patchItem.pos !== null) throw new Error('pickupItem: patchItem_pos_must_be_null');
 
-      tx.set(actorRef, { ...patchActor, updatedAt: serverTs() }, { merge: true });
-      tx.set(itemRef, { ...patchItem, updatedAt: serverTs() }, { merge: true });
+      setWithUpdatedAt(txn, actorRef, patchActor);
+      setWithUpdatedAt(txn, itemRef, patchItem);
     });
 
     return { ok: true };
@@ -97,11 +74,11 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
 
     const itemRef = state.itemsCol(gameId).doc(itemId);
 
-    await db.runTransaction(async (tx) => {
-      const actorInfo = await findActorByIdTx(tx, gameId, actorId);
+    await run('dropItem', async (txn) => {
+      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
       if (!actorInfo) throw new Error('dropItem: actor_not_found');
 
-      const itemSnap = await tx.get(itemRef);
+      const itemSnap = await txn.get(itemRef);
       if (!itemSnap.exists) throw new Error('dropItem: item_not_found');
 
       const actorRef = actorInfo.ref;
@@ -127,8 +104,8 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
       if (patchItem.carriedBy !== null) throw new Error('dropItem: patchItem_carriedBy_must_be_null');
       if (!samePos(patchItem.pos, actor.pos)) throw new Error('dropItem: patchItem_pos_must_equal_actor_pos');
 
-      tx.set(actorRef, { ...patchActor, updatedAt: serverTs() }, { merge: true });
-      tx.set(itemRef, { ...patchItem, updatedAt: serverTs() }, { merge: true });
+      setWithUpdatedAt(txn, actorRef, patchActor);
+      setWithUpdatedAt(txn, itemRef, patchItem);
     });
 
     return { ok: true };
