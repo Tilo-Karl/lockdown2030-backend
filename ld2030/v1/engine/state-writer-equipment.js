@@ -6,7 +6,7 @@
 // No derived-stat computation here.
 
 const makeTx = require('./tx');
-const { listIdsDeep, findActorByIdTx } = require('./actor-tx-helpers');
+const { listIdsDeep, requireActorAndItemTx } = require('./actor-item-tx');
 
 module.exports = function makeEquipmentWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-equipment: db is required');
@@ -58,18 +58,20 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
     if (!actorId || !itemId) throw new Error('equipItem: missing_actorId_or_itemId');
     if (!patch || typeof patch !== 'object') throw new Error('equipItem: missing_patch');
 
-    const itemRef = state.itemsCol(gameId).doc(itemId);
-
     await run('equipItem', async (txn) => {
-      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
-      if (!actorInfo) throw new Error('equipItem: actor_not_found');
+      const read = await requireActorAndItemTx({
+        tx: txn,
+        state,
+        gameId,
+        actorId,
+        itemId,
+        errActor: 'equipItem: actor_not_found',
+        errItem: 'equipItem: item_not_found',
+      });
 
-      const itemSnap = await txn.get(itemRef);
-      if (!itemSnap.exists) throw new Error('equipItem: item_not_found');
-
-      const actorRef = actorInfo.ref;
-      const actor = actorInfo.data || {};
-      const item = itemSnap.data() || {};
+      const actorRef = read.actorRef;
+      const actor = read.actor || {};
+      const item = read.item || {};
 
       if (String(actor.type || '').toUpperCase() !== 'HUMAN') throw new Error('equipItem: actor_not_human');
       if (!item.slot || !item.slotKey) throw new Error('equipItem: item_not_equippable');
@@ -107,18 +109,20 @@ module.exports = function makeEquipmentWriter({ db, admin, state }) {
     if (!actorId || !itemId) throw new Error('unequipItem: missing_actorId_or_itemId');
     if (!patch || typeof patch !== 'object') throw new Error('unequipItem: missing_patch');
 
-    const itemRef = state.itemsCol(gameId).doc(itemId);
-
     await run('unequipItem', async (txn) => {
-      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
-      if (!actorInfo) throw new Error('unequipItem: actor_not_found');
+      const read = await requireActorAndItemTx({
+        tx: txn,
+        state,
+        gameId,
+        actorId,
+        itemId,
+        errActor: 'unequipItem: actor_not_found',
+        errItem: 'unequipItem: item_not_found',
+      });
 
-      const itemSnap = await txn.get(itemRef);
-      if (!itemSnap.exists) throw new Error('unequipItem: item_not_found');
-
-      const actorRef = actorInfo.ref;
-      const actor = actorInfo.data || {};
-      const item = itemSnap.data() || {};
+      const actorRef = read.actorRef;
+      const actor = read.actor || {};
+      const item = read.item || {};
 
       if (!item.slot || !item.slotKey) throw new Error('unequipItem: item_not_equippable');
 

@@ -3,13 +3,15 @@
 // MUST support appendEventsTx(tx, ...) so gameplay can emit events in the same transaction.
 
 const { MAX_KEEP } = require('../events/event-constants');
+const makeTx = require('./tx');
 
 module.exports = function makeEventsWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-events: db is required');
   if (!admin) throw new Error('state-writer-events: admin is required');
   if (!state) throw new Error('state-writer-events: state is required');
 
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const txHelpers = makeTx({ db, admin });
+  const { setWithMeta, serverTs } = txHelpers;
 
   function gameRef(gameId) {
     return (state && typeof state.gameRef === 'function')
@@ -95,25 +97,12 @@ module.exports = function makeEventsWriter({ db, admin, state }) {
 
     const toSeq = seq - 1;
 
-    tx.set(
-      metaRef,
-      {
-        nextSeq: seq,
-        updatedAt: serverTs(),
-      },
-      { merge: true }
-    );
+    setWithMeta(tx, metaRef, { nextSeq: seq }, metaSnap);
 
     return { ok: true, appended: arr.length, fromSeq, toSeq, nextSeq: seq };
   }
 
-  // Optional convenience wrapper (use only when caller is NOT already in a tx)
-  async function appendEvents({ gameId = 'lockdown2030', events } = {}) {
-    return db.runTransaction(async (tx) => appendEventsTx(tx, { gameId, events }));
-  }
-
   return {
     appendEventsTx,
-    appendEvents,
   };
 };

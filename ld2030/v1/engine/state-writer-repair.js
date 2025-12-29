@@ -28,6 +28,9 @@ const {
 } = require('../world/district-state');
 
 const makeEventsWriter = require('./state-writer-events');
+const makeTx = require('./tx');
+const { findActorByIdTx } = require('./actor-tx-helpers');
+const { readItemByIdTx } = require('./entity-tx-helpers');
 
 function nInt(x, fallback = 0) {
   const v = Number(x);
@@ -60,7 +63,8 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
   if (!state) throw new Error('state-writer-repair: state is required');
 
   const eventsWriter = makeEventsWriter({ db, admin, state });
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const txHelpers = makeTx({ db, admin });
+  const { run, setWithMeta } = txHelpers;
 
   function gameRef(gameId) {
     return (state && typeof state.gameRef === 'function')
@@ -73,38 +77,9 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
     return gameRef(gameId).collection('cells');
   }
 
-  function itemsCol(gameId) {
-    if (typeof state.itemsCol === 'function') return state.itemsCol(gameId);
-    return gameRef(gameId).collection('items');
-  }
-
   function districtStateCol(gameId) {
     if (typeof state.districtStateCol === 'function') return state.districtStateCol(gameId);
     return gameRef(gameId).collection('districtState');
-  }
-
-  function metaPatchForSnap(snap) {
-    const ts = serverTs();
-    const cur = snap && snap.exists ? (snap.data() || {}) : {};
-    const meta = { updatedAt: ts };
-    if (!snap || !snap.exists || cur.createdAt == null) meta.createdAt = ts;
-    return meta;
-  }
-
-  async function findActorByIdTx(tx, gameId, actorId) {
-    const id = String(actorId);
-    const cols = [
-      { label: 'players', col: state.playersCol(gameId) },
-      { label: 'zombies', col: state.zombiesCol(gameId) },
-      { label: 'humans',  col: state.humansCol(gameId) },
-    ];
-
-    for (const c of cols) {
-      const ref = c.col.doc(id);
-      const snap = await tx.get(ref);
-      if (snap.exists) return { ref, label: c.label, snap, data: (snap.data() || {}) };
-    }
-    return null;
   }
 
   function requireInsidePos(actor) {
@@ -128,19 +103,15 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
 
   async function findInventoryItemByKindTx(tx, gameId, actor, wantKind) {
     const inv = Array.isArray(actor?.inventory) ? actor.inventory : [];
-    const col = itemsCol(gameId);
-
     for (const itemId of inv) {
       const id = String(itemId || '').trim();
       if (!id) continue;
-      const ref = col.doc(id);
-      const snap = await tx.get(ref);
-      if (!snap.exists) continue;
-
-      const item = snap.data() || {};
+      const info = await readItemByIdTx({ tx, state, gameId, itemId: id });
+      if (!info) continue;
+      const item = info.data || {};
       if (String(item.type || '').toUpperCase() !== 'ITEM') continue;
       if (String(item.kind || '') === String(wantKind)) {
-        return { itemId: id, ref, snap, item };
+        return { itemId: id, ref: info.ref, snap: info.snap, item };
       }
     }
 
@@ -174,8 +145,8 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
     const gId = String(gameId || 'lockdown2030').trim() || 'lockdown2030';
     const aId = String(actorId).trim();
 
-    await db.runTransaction(async (tx) => {
-      const actorInfo = await findActorByIdTx(tx, gId, aId);
+    await run('repairCell', async (tx) => {
+      const actorInfo = await findActorByIdTx({ tx, state, gameId: gId, actorId: aId });
       if (!actorInfo) throw new Error('REPAIR_CELL: actor_not_found');
 
       const actor = actorInfo.data || {};
@@ -236,7 +207,7 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
           invAfter = removeFromInventory(invAfter, itemId);
           itemDeletes.push(itemRef);
         } else {
-          itemWrites.push({ ref: itemRef, patch: { durability: nextDur } });
+          itemWrites.push({ ref: itemRef, snap: itemInfo.snap, patch: { durability: nextDur } });
         }
       } else if (needKind === 'BATTERY') {
         // stackable: decrement quantity; delete if reaches 0
@@ -247,30 +218,23 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
           invAfter = removeFromInventory(invAfter, itemId);
           itemDeletes.push(itemRef);
         } else {
-          itemWrites.push({ ref: itemRef, patch: { quantity: nextQty } });
+          itemWrites.push({ ref: itemRef, snap: itemInfo.snap, patch: { quantity: nextQty } });
         }
       }
 
       // Actor patch
-      const actorMeta = metaPatchForSnap(actorInfo.snap);
       const actorPatch = {
         currentAp: nextAp,
         inventory: invAfter,
-        ...actorMeta,
       };
-
-      // Cell patch + meta
-      const cellMeta = metaPatchForSnap(cSnap);
-      const finalCellPatch = {
+      const cellPatchWithId = {
         ...cellPatch,
         cellId: String(cellId),
-        ...cellMeta,
       };
 
       // District updates (objectives + utility flags) if this cell is a facility cell
       const districtId = cell.districtId != null ? String(cell.districtId) : null;
 
-      let dsPatch = null;
       let objectiveTouched = null;
       let utilitiesTouched = false;
 
@@ -355,11 +319,8 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
               facilityCell: ispCell,
             });
 
-            const dsMeta = metaPatchForSnap(dsSnap);
-
-            dsPatch = {
+            const dsPatch = {
               districtId: String(districtId),
-              ...dsMeta,
             };
 
             if (objectiveChanged) {
@@ -370,27 +331,24 @@ module.exports = function makeRepairWriter({ db, admin, state }) {
             dsPatch.waterOn = !!waterOn;
             dsPatch.ispOn = !!ispOn;
 
-            tx.set(dsRef, dsPatch, { merge: true });
+            setWithMeta(tx, dsRef, dsPatch, dsSnap);
           } else if (objectiveChanged) {
             // objective changed implies we were on a facility cell, but keep this safe
-            const dsMeta = metaPatchForSnap(dsSnap);
-            dsPatch = {
+            const dsPatch = {
               districtId: String(districtId),
               objectives: dsNext.objectives,
-              ...dsMeta,
             };
-            tx.set(dsRef, dsPatch, { merge: true });
+            setWithMeta(tx, dsRef, dsPatch, dsSnap);
           }
         }
       }
 
       // Apply writes in same tx
-      tx.set(actorInfo.ref, actorPatch, { merge: true });
-      tx.set(cRef, finalCellPatch, { merge: true });
+      setWithMeta(tx, actorInfo.ref, actorPatch, actorInfo.snap);
+      setWithMeta(tx, cRef, cellPatchWithId, cSnap);
 
       for (const w of itemWrites) {
-        const meta = metaPatchForSnap(w.ref ? await tx.get(w.ref) : null);
-        tx.set(w.ref, { ...(w.patch || {}), ...meta }, { merge: true });
+        setWithMeta(tx, w.ref, w.patch || {}, w.snap);
       }
 
       for (const ref of itemDeletes) {

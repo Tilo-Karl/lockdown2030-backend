@@ -54,7 +54,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
     return {
       ...tmpl,
-      currentDurability: durabilityMax,
+      durability: durabilityMax,
       createdAt: serverTs(),
       updatedAt: serverTs(),
       ...extra,

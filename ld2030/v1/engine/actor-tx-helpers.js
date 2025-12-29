@@ -1,5 +1,5 @@
 // ld2030/v1/engine/actor-tx-helpers.js
-// Shared helpers for writer transactions (actor lookup + equipment ID collection).
+// Shared helpers for writer transactions (actor lookup + list helpers).
 
 function listIdsDeep(equipment) {
   const ids = [];

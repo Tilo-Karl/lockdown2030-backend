@@ -42,8 +42,8 @@ function applyDamageToActor({ currentHp, damage } = {}) {
   return { nextHp, isAlive, isDowned };
 }
 
-function applyDamageToItem({ currentDurability, damage, destructible } = {}) {
-  const cur = isFiniteNum(currentDurability) ? currentDurability : 0;
+function applyDamageToItem({ durability, damage, destructible } = {}) {
+  const cur = isFiniteNum(durability) ? durability : 0;
   const dmg = isFiniteNum(damage) ? damage : 0;
   const canBreak = destructible !== false;
 

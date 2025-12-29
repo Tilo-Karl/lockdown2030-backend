@@ -66,7 +66,7 @@ Frontend maps `messageKey + args` → localized string (same pattern you’ll us
     - `rollHit(rng, hitChance)` → `rng()` injected
     - `computeDamage({ rawDamage, armor })` → `max(0, rawDamage - armor)`
     - `applyDamageToActor({ currentHp, damage })` → `{ nextHp, isAlive, isDowned }`
-    - `applyDamageToItem({ currentDurability, damage, destructible })` → `{ nextDurability, broken }`
+    - `applyDamageToItem({ durability, damage, destructible })` → `{ nextDurability, broken }`
 
 **Improvement rule:** combat.js must contain **zero Firestore**. Pure math only.
 

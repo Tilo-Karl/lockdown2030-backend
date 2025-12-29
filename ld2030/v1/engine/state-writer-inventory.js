@@ -6,7 +6,8 @@
 // - Enforces: cannot drop equipped items; pickup requires item on your tile.
 
 const makeTx = require('./tx');
-const { listIdsDeep, findActorByIdTx } = require('./actor-tx-helpers');
+const { listIdsDeep, requireActorAndItemTx } = require('./actor-item-tx');
+const { samePos } = require('./pos-utils');
 
 module.exports = function makeInventoryWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-inventory: db is required');
@@ -16,33 +17,26 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
   const txHelpers = makeTx({ db, admin });
   const { run, setWithUpdatedAt } = txHelpers;
 
-  function samePos(a, b) {
-    if (!a || !b) return false;
-    return (
-      Number(a.x) === Number(b.x) &&
-      Number(a.y) === Number(b.y) &&
-      Number(a.z) === Number(b.z) &&
-      Number(a.layer) === Number(b.layer)
-    );
-  }
-
   async function pickupItem({ gameId = 'lockdown2030', actorId, itemId, patchActor, patchItem }) {
     if (!actorId || !itemId) throw new Error('pickupItem: missing_actorId_or_itemId');
     if (!patchActor || typeof patchActor !== 'object') throw new Error('pickupItem: missing_patchActor');
     if (!patchItem || typeof patchItem !== 'object') throw new Error('pickupItem: missing_patchItem');
 
-    const itemRef = state.itemsCol(gameId).doc(itemId);
-
     await run('pickupItem', async (txn) => {
-      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
-      if (!actorInfo) throw new Error('pickupItem: actor_not_found');
+      const read = await requireActorAndItemTx({
+        tx: txn,
+        state,
+        gameId,
+        actorId,
+        itemId,
+        errActor: 'pickupItem: actor_not_found',
+        errItem: 'pickupItem: item_not_found',
+      });
 
-      const itemSnap = await txn.get(itemRef);
-      if (!itemSnap.exists) throw new Error('pickupItem: item_not_found');
-
-      const actorRef = actorInfo.ref;
-      const actor = actorInfo.data || {};
-      const item = itemSnap.data() || {};
+      const actorRef = read.actorRef;
+      const actor = read.actor || {};
+      const itemRef = read.itemRef;
+      const item = read.item || {};
 
       if (String(actor.type || '').toUpperCase() !== 'HUMAN') throw new Error('pickupItem: actor_not_human');
       if (String(item.type || '').toUpperCase() !== 'ITEM') throw new Error('pickupItem: item_not_item');
@@ -72,18 +66,21 @@ module.exports = function makeInventoryWriter({ db, admin, state }) {
     if (!patchActor || typeof patchActor !== 'object') throw new Error('dropItem: missing_patchActor');
     if (!patchItem || typeof patchItem !== 'object') throw new Error('dropItem: missing_patchItem');
 
-    const itemRef = state.itemsCol(gameId).doc(itemId);
-
     await run('dropItem', async (txn) => {
-      const actorInfo = await findActorByIdTx({ tx: txn, state, gameId, actorId });
-      if (!actorInfo) throw new Error('dropItem: actor_not_found');
+      const read = await requireActorAndItemTx({
+        tx: txn,
+        state,
+        gameId,
+        actorId,
+        itemId,
+        errActor: 'dropItem: actor_not_found',
+        errItem: 'dropItem: item_not_found',
+      });
 
-      const itemSnap = await txn.get(itemRef);
-      if (!itemSnap.exists) throw new Error('dropItem: item_not_found');
-
-      const actorRef = actorInfo.ref;
-      const actor = actorInfo.data || {};
-      const item = itemSnap.data() || {};
+      const actorRef = read.actorRef;
+      const actor = read.actor || {};
+      const itemRef = read.itemRef;
+      const item = read.item || {};
 
       if (String(actor.type || '').toUpperCase() !== 'HUMAN') throw new Error('dropItem: actor_not_human');
       if (String(item.type || '').toUpperCase() !== 'ITEM') throw new Error('dropItem: item_not_item');

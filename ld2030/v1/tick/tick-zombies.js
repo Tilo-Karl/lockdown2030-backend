@@ -225,7 +225,7 @@ function makeZombieTicker({ reader, writer }) {
 
               const dmg = combat.computeDamage({ rawDamage: raw, armor: 0 });
               const applied = combat.applyDamageToItem({
-                currentDurability: curHp,
+                durability: curHp,
                 damage: dmg,
                 destructible: true,
               });
@@ -304,7 +304,7 @@ function makeZombieTicker({ reader, writer }) {
 
                   const dmg = combat.computeDamage({ rawDamage: raw, armor: 0 });
                   const applied = combat.applyDamageToItem({
-                    currentDurability: curHp,
+                    durability: curHp,
                     damage: dmg,
                     destructible: true,
                   });
