@@ -16,8 +16,7 @@
 const { GRID } = require('./config');
 const { PLAYER: PLAYER_DEFAULTS } = require('./config/config-game');
 const { resolveEntityConfig } = require('./entity');
-
-const serverTs = (admin) => admin.firestore.FieldValue.serverTimestamp();
+const makeTx = require('./engine/tx');
 
 // Template is single source of truth for missing fields + caps baseline
 const PLAYER_CFG = resolveEntityConfig('HUMAN', 'PLAYER');
@@ -26,6 +25,8 @@ if (PLAYER_CFG.maxHp == null || PLAYER_CFG.maxAp == null) throw new Error('PLAYE
 
 module.exports = function registerJoinGame(app, { db, admin, state, base }) {
   const BASE = base || '/api/ld2030/v1';
+  const txHelpers = makeTx({ db, admin });
+  const { run, serverTs, setWithMeta, setWithUpdatedAt } = txHelpers;
 
   function gameRef(gameId) {
     return (state && typeof state.gameRef === 'function')
@@ -166,18 +167,13 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
       if (cell.blocksMove === true) continue;
       if (isSpawnLocked(cell, nowMs, ttlMs)) continue;
 
-      tx.set(
-        ref,
-        {
-          spawnLock: {
-            uid: String(uid),
-            atMs: nowMs,
-            at: serverTs(admin), // optional audit
-          },
-          updatedAt: serverTs(admin),
+      setWithUpdatedAt(tx, ref, {
+        spawnLock: {
+          uid: String(uid),
+          atMs: nowMs,
+          at: serverTs(),
         },
-        { merge: true }
-      );
+      });
 
       return { x, y, z: 0, layer: 0 };
     }
@@ -188,14 +184,9 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
     const fref = col.doc(fid);
     const fsnap = await tx.get(fref);
     if (fsnap.exists) {
-      tx.set(
-        fref,
-        {
-          spawnLock: { uid: String(uid), atMs: Date.now(), at: serverTs(admin) },
-          updatedAt: serverTs(admin),
-        },
-        { merge: true }
-      );
+      setWithUpdatedAt(tx, fref, {
+        spawnLock: { uid: String(uid), atMs: Date.now(), at: serverTs() },
+      });
     }
     return fallback;
   }
@@ -205,7 +196,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
       const { gameId = 'lockdown2030', uid, displayName } = req.body || {};
       if (!gameId || !uid) return res.status(400).json({ ok: false, reason: 'missing_fields' });
 
-      const result = await db.runTransaction(async (tx) => {
+      const result = await run('joinGame', async (tx) => {
         const gRef = gameRef(gameId);
         const gDoc = await tx.get(gRef);
         if (!gDoc.exists) throw new Error('game_not_found');
@@ -247,16 +238,11 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
               pos: clampedPos,
 
               ...runtime,
-
-              updatedAt: serverTs(admin),
             };
-
-            if (merged.createdAt == null) patch.createdAt = serverTs(admin);
-
-            tx.set(pRef, patch, { merge: true });
+            setWithMeta(tx, pRef, patch, pDoc);
 
             // Join log under game meta (NOT players collection)
-            tx.set(metaLogsRef(gameId), { lastJoinAt: serverTs(admin) }, { merge: true });
+            setWithUpdatedAt(tx, metaLogsRef(gameId), { lastJoinAt: serverTs() });
 
             return {
               x: clampedPos.x,
@@ -291,15 +277,11 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
           pos: { x: spawn.x, y: spawn.y, z: 0, layer: 0 },
 
           ...runtime,
-
-          createdAt: serverTs(admin),
-          updatedAt: serverTs(admin),
         };
-
-        tx.set(pRef, payload, { merge: true });
+        setWithMeta(tx, pRef, payload, pDoc);
 
         // Join log under game meta (NOT players collection)
-        tx.set(metaLogsRef(gameId), { lastJoinAt: serverTs(admin) }, { merge: true });
+        setWithUpdatedAt(tx, metaLogsRef(gameId), { lastJoinAt: serverTs() });
 
         return {
           x: payload.pos.x,

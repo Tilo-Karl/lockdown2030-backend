@@ -9,12 +9,15 @@
 // - NO legacy isInsideBuilding (layer is the truth)
 // - SEARCH is inside-only (layer=1)
 
+const makeTx = require('./tx');
+
 module.exports = function makeSearchStateWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-search: db is required');
   if (!admin) throw new Error('state-writer-search: admin is required');
   if (!state) throw new Error('state-writer-search: state is required');
 
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const txHelpers = makeTx({ db, admin });
+  const { run, setWithMeta } = txHelpers;
 
   function gameRef(gameId) {
     return (state && typeof state.gameRef === 'function')
@@ -59,14 +62,6 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
     return { x, y, z, layer };
   }
 
-  function metaPatchForSnap(snap) {
-    const ts = serverTs();
-    const cur = snap.exists ? (snap.data() || {}) : {};
-    const meta = { updatedAt: ts };
-    if (!snap.exists || cur.createdAt == null) meta.createdAt = ts;
-    return meta;
-  }
-
   async function searchCell({
     gameId,
     uid, // player id (search is player-only in this writer)
@@ -92,7 +87,7 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
 
     const cost = Number.isFinite(apCost) ? Math.max(1, Math.trunc(apCost)) : 1;
 
-    return db.runTransaction(async (tx) => {
+    return run('searchCell', async (tx) => {
       const pSnap = await tx.get(playerRef);
       if (!pSnap.exists) throw new Error('searchCell: player_not_found');
       const player = pSnap.data() || {};
@@ -125,12 +120,10 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
       const nextRemaining = Math.max(0, remaining - 1);
       const nextCount = (Number.isFinite(search.searchedCount) ? search.searchedCount : 0) + 1;
 
-      const pMeta = metaPatchForSnap(pSnap);
-      const cMeta = metaPatchForSnap(cSnap);
+      setWithMeta(tx, playerRef, { currentAp: nextAp }, pSnap);
 
-      tx.set(playerRef, { currentAp: nextAp, ...pMeta }, { merge: true });
-
-      tx.set(
+      setWithMeta(
+        tx,
         cellRef,
         {
           cellId: id,
@@ -140,9 +133,8 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
             remaining: nextRemaining,
             searchedCount: nextCount,
           },
-          ...cMeta,
         },
-        { merge: true }
+        cSnap
       );
 
       return {

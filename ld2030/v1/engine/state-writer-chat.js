@@ -2,13 +2,15 @@
 // Chat feed writer (global/district/dm) with bounded seq log per scope.
 
 const { CHAT_MAX_KEEP, normalizeScope } = require('../chat/chat-constants');
+const makeTx = require('./tx');
 
 module.exports = function makeChatWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-chat: db is required');
   if (!admin) throw new Error('state-writer-chat: admin is required');
   if (!state) throw new Error('state-writer-chat: state is required');
 
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const txHelpers = makeTx({ db, admin });
+  const { run, setWithUpdatedAt, serverTs } = txHelpers;
 
   function ensureScope(scope) {
     const s = normalizeScope(scope);
@@ -81,20 +83,13 @@ module.exports = function makeChatWriter({ db, admin, state }) {
       tx.delete(col.doc(`m_${killSeq}`));
     }
 
-    tx.set(
-      metaRef,
-      {
-        nextSeq: seq + 1,
-        updatedAt: serverTs(),
-      },
-      { merge: true }
-    );
+    setWithUpdatedAt(tx, metaRef, { nextSeq: seq + 1 });
 
     return { ok: true, seq };
   }
 
   async function appendChat(opts) {
-    return db.runTransaction((tx) => appendChatTx(tx, opts));
+    return run('appendChat', (tx) => appendChatTx(tx, opts));
   }
 
   return {
