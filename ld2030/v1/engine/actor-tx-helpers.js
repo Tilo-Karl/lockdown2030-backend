@@ -32,7 +32,7 @@ async function findActorByIdTx({ tx, state, gameId, actorId }) {
   for (const col of cols) {
     const ref = col.doc(actorId);
     const snap = await tx.get(ref);
-    if (snap.exists) return { ref, data: snap.data() || {} };
+    if (snap.exists) return { ref, snap, data: snap.data() || {} };
   }
   return null;
 }

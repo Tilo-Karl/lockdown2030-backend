@@ -40,9 +40,29 @@ module.exports = function makeTx({ db, admin }) {
     tx.set(ref, { ...patch, updatedAt: serverTs() }, { merge: true });
   }
 
+  function metaPatchForSnap(snap) {
+    const cur = snap && snap.exists ? (snap.data() || {}) : {};
+    const meta = { updatedAt: serverTs() };
+    if (!snap || !snap.exists || cur.createdAt == null) {
+      meta.createdAt = serverTs();
+    }
+    return meta;
+  }
+
+  function setWithMeta(tx, ref, patch, snap) {
+    if (!tx) throw new Error('tx.setWithMeta: tx required');
+    if (!ref) throw new Error('tx.setWithMeta: ref required');
+    if (!patch || typeof patch !== 'object') throw new Error('tx.setWithMeta: patch required');
+
+    const meta = metaPatchForSnap(snap);
+    tx.set(ref, { ...patch, ...meta }, { merge: true });
+  }
+
   return {
     run,
     serverTs,
     setWithUpdatedAt,
+    metaPatchForSnap,
+    setWithMeta,
   };
 };

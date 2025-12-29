@@ -5,12 +5,16 @@
 // FIX: edgeId is enforced by writer (data.edgeId can NOT override it).
 // ADD: updateActorAndEdgeAtomic (actor currentAp + edge write in ONE tx)
 
+const makeTx = require('./tx');
+const { findActorByIdTx } = require('./actor-tx-helpers');
+
 module.exports = function makeCoreStateWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-core: db is required');
   if (!admin) throw new Error('state-writer-core: admin is required');
   if (!state) throw new Error('state-writer-core: state is required');
 
-  const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
+  const txHelpers = makeTx({ db, admin });
+  const { run, setWithMeta } = txHelpers;
 
   function gameRef(gameId) {
     return (state && typeof state.gameRef === 'function')
@@ -35,49 +39,29 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     return gameRef(gameId).collection('noiseTiles');
   }
 
-  function metaPatchForSnap(snap) {
-    const ts = serverTs();
-    const cur = snap.exists ? (snap.data() || {}) : {};
-    const meta = { updatedAt: ts };
-    if (!snap.exists || cur.createdAt == null) meta.createdAt = ts;
-    return meta;
-  }
-
-  async function findActorByIdTx(tx, gameId, actorId) {
-    const id = String(actorId);
-    const cols = [
-      { label: 'players', col: state.playersCol(gameId) },
-      { label: 'zombies', col: state.zombiesCol(gameId) },
-      { label: 'humans',  col: state.humansCol(gameId) },
-    ];
-
-    for (const c of cols) {
-      const ref = c.col.doc(id);
-      const snap = await tx.get(ref);
-      if (snap.exists) return { ref, label: c.label, snap, data: (snap.data() || {}) };
-    }
-    return null;
-  }
-
   async function movePlayer(gameId, uid, dx, dy) {
     const ref = state.playersCol(gameId).doc(uid);
 
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
+    await run('movePlayer', async (txn) => {
+      const snap = await txn.get(ref);
 
       const cur = snap.exists ? (snap.data() || {}) : {};
       const pos = cur.pos || { x: 0, y: 0, z: 0, layer: 0 };
       const newX = (pos.x ?? 0) + Number(dx);
       const newY = (pos.y ?? 0) + Number(dy);
 
-      tx.set(
+      setWithMeta(
+        txn,
         ref,
         {
-          pos: { x: newX, y: newY, z: Number.isFinite(pos.z) ? pos.z : 0, layer: Number.isFinite(pos.layer) ? pos.layer : 0 },
-          ...meta,
+          pos: {
+            x: newX,
+            y: newY,
+            z: Number.isFinite(pos.z) ? pos.z : 0,
+            layer: Number.isFinite(pos.layer) ? pos.layer : 0,
+          },
         },
-        { merge: true }
+        snap
       );
     });
 
@@ -86,40 +70,36 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
 
   async function updatePlayer(gameId, uid, data) {
     const ref = state.playersCol(gameId).doc(uid);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, ...meta }, { merge: true });
+    await run('updatePlayer', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, data, snap);
     });
     return { ok: true };
   }
 
   async function updateZombie(gameId, zombieId, data) {
     const ref = state.zombiesCol(gameId).doc(zombieId);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, ...meta }, { merge: true });
+    await run('updateZombie', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, data, snap);
     });
     return { ok: true };
   }
 
   async function updateHuman(gameId, humanId, data) {
     const ref = state.humansCol(gameId).doc(humanId);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, ...meta }, { merge: true });
+    await run('updateHuman', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, data, snap);
     });
     return { ok: true };
   }
 
   async function updateItem(gameId, itemId, data) {
     const ref = state.itemsCol(gameId).doc(itemId);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, ...meta }, { merge: true });
+    await run('updateItem', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, data, snap);
     });
     return { ok: true };
   }
@@ -127,12 +107,11 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
   async function updateActor(gameId, actorId, data) {
     const id = String(actorId);
 
-    await db.runTransaction(async (tx) => {
-      const found = await findActorByIdTx(tx, gameId, id);
+    await run('updateActor', async (txn) => {
+      const found = await findActorByIdTx({ tx: txn, state, gameId, actorId: id });
       if (!found) throw new Error('updateActor: actor_not_found');
 
-      const meta = metaPatchForSnap(found.snap);
-      tx.set(found.ref, { ...data, ...meta }, { merge: true });
+      setWithMeta(txn, found.ref, data, found.snap);
     });
 
     return { ok: true };
@@ -143,20 +122,17 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
     const aId = String(actorId);
     const eId = String(edgeId);
 
-    await db.runTransaction(async (tx) => {
-      const found = await findActorByIdTx(tx, gameId, aId);
+    await run('updateActorAndEdgeAtomic', async (txn) => {
+      const found = await findActorByIdTx({ tx: txn, state, gameId, actorId: aId });
       if (!found) throw new Error('updateActorAndEdgeAtomic: actor_not_found');
 
       const edgeRef = edgesCol(gameId).doc(eId);
-      const edgeSnap = await tx.get(edgeRef);
+      const edgeSnap = await txn.get(edgeRef);
 
-      const actorMeta = metaPatchForSnap(found.snap);
-      const edgeMeta = metaPatchForSnap(edgeSnap);
-
-      tx.set(found.ref, { ...(actorPatch || {}), ...actorMeta }, { merge: true });
+      setWithMeta(txn, found.ref, { ...(actorPatch || {}) }, found.snap);
 
       // IMPORTANT: enforce edgeId (edgePatch.edgeId cannot override)
-      tx.set(edgeRef, { ...(edgePatch || {}), edgeId: eId, ...edgeMeta }, { merge: true });
+      setWithMeta(txn, edgeRef, { ...(edgePatch || {}), edgeId: eId }, edgeSnap);
     });
 
     return { ok: true };
@@ -165,10 +141,9 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
   async function updateCell(gameId, cellId, data) {
     const id = String(cellId);
     const ref = cellsCol(gameId).doc(id);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, cellId: id, ...meta }, { merge: true });
+    await run('updateCell', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, { ...data, cellId: id }, snap);
     });
     return { ok: true };
   }
@@ -176,11 +151,10 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
   async function updateEdge(gameId, edgeId, data) {
     const id = String(edgeId);
     const ref = edgesCol(gameId).doc(id);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
+    await run('updateEdge', async (txn) => {
+      const snap = await txn.get(ref);
       // IMPORTANT: enforce edgeId (data.edgeId cannot override)
-      tx.set(ref, { ...data, edgeId: id, ...meta }, { merge: true });
+      setWithMeta(txn, ref, { ...data, edgeId: id }, snap);
     });
     return { ok: true };
   }
@@ -196,10 +170,9 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
   async function updateDistrictState(gameId, districtId, data) {
     const id = String(districtId);
     const ref = districtStateCol(gameId).doc(id);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, districtId: id, ...meta }, { merge: true });
+    await run('updateDistrictState', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, { ...data, districtId: id }, snap);
     });
     return { ok: true };
   }
@@ -207,20 +180,18 @@ module.exports = function makeCoreStateWriter({ db, admin, state }) {
   async function updateNoiseTile(gameId, noiseTileId, data) {
     const id = String(noiseTileId);
     const ref = noiseTilesCol(gameId).doc(id);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...data, ...meta }, { merge: true });
+    await run('updateNoiseTile', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, data, snap);
     });
     return { ok: true };
   }
 
   async function writeGameMeta(gameId, newMeta) {
     const ref = gameRef(gameId);
-    await db.runTransaction(async (tx) => {
-      const snap = await tx.get(ref);
-      const meta = metaPatchForSnap(snap);
-      tx.set(ref, { ...newMeta, ...meta }, { merge: true });
+    await run('writeGameMeta', async (txn) => {
+      const snap = await txn.get(ref);
+      setWithMeta(txn, ref, newMeta, snap);
     });
     return { ok: true };
   }
