@@ -8,6 +8,7 @@
 // - Engine coordinates rules + services, but does not implement HTTP routing.
 
 const { makeEquipmentService } = require('./equipment-service');
+const { planMove } = require('./move-rules');
 
 const { makeDoorService } = require('./door-service');
 const { makeDoorHandlers } = require('./handlers/door-handlers');
@@ -92,15 +93,23 @@ function makeEngine({ reader, writer }) {
     const nextX = clamp(pos.x + stepX, 0, W - 1);
     const nextY = clamp(pos.y + stepY, 0, H - 1);
 
-    // Runtime truth: movement stays on SAME z/layer plane.
     const targetCellId = cellId(nextX, nextY, pos.z, pos.layer);
     const targetCell = await reader.getCell(gameId, targetCellId);
     if (!targetCell) throw new Error(`${TAG}: target_cell_missing`);
-    if (targetCell.blocksMove === true) throw new Error(`${TAG}: blocked`);
 
-    const apCost = Number.isFinite(targetCell.moveCost) ? Math.trunc(targetCell.moveCost) : 1;
+    const planned = planMove({
+      game,
+      actor,
+      dx,
+      dy,
+      targetCell,
+    });
 
-    const nextPos = { x: nextX, y: nextY, z: pos.z, layer: pos.layer };
+    if (!planned.ok) {
+      throw new Error(`${TAG}: ${planned.reason || 'invalid_move'}`);
+    }
+
+    const { pos: nextPos, apCost } = planned;
 
     if (actor.isPlayer === true) {
       const curAp = Number.isFinite(actor.currentAp) ? Math.trunc(actor.currentAp) : 0;
