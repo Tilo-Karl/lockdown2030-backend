@@ -21,10 +21,10 @@ const state = makeState(db, admin);
 
 // Engine (verbs + tick)
 const gameEngine = makeGameEngine({ db, admin, state });
-const { tickEngine } = gameEngine;
+const { engine, tickEngine } = gameEngine;
 
 // ✅ Build action router (THIS is what routes call)
-const actions = makeActionRouter({ engine: gameEngine });
+const actions = makeActionRouter({ engine });
 
 // ✅ Reader for read-only endpoints (events feed)
 const reader = makeStateReader({ db, state });

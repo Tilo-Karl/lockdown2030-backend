@@ -237,16 +237,24 @@ function makeEngine({ reader, writer }) {
     const curAp = Number.isFinite(actor.currentAp) ? Math.trunc(actor.currentAp) : 0;
     if (curAp < apCost) throw new Error(`${TAG}: not_enough_ap`);
 
-    const spotId = `i_${pos.x}_${pos.y}_${pos.z}_${pos.layer}`;
+    const cellId = `c_${pos.x}_${pos.y}_${pos.z}_${pos.layer}`;
 
-    return writer.searchSpot({
+    const result = await writer.searchCell({
       gameId,
       uid,
-      spotId,
-      pos,
+      cellId,
       apCost,
-      defaultRemaining: 3,
     });
+
+    return {
+      ok: true,
+      cellId,
+      pos: result.pos,
+      apCost: result.apCost,
+      currentAp: result.currentAp,
+      remaining: result.remaining,
+      maxRemaining: result.maxRemaining,
+    };
   }
 
   async function attackEntity({ gameId = 'lockdown2030', uid, targetId }) {
