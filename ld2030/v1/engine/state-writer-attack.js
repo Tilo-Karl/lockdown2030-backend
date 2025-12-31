@@ -204,16 +204,15 @@ module.exports = function makeAttackStateWriter({ db, admin, state }) {
         });
       }
 
-      // Persist writes
+      if (!eventsWriter || typeof eventsWriter.appendEventsTx !== 'function') {
+        throw new Error('attackEntity: events_writer_missing_appendEventsTx');
+      }
+
+      await eventsWriter.appendEventsTx(tx, { gameId, events });
+
+      // Persist writes (all reads already complete)
       setWithMeta(tx, attackerRef, attackerWrite, attackerInfo.snap);
       setWithMeta(tx, targetRef, targetWrite, targetInfo.snap);
-
-      // Persist events in SAME tx (bounded feed writer handles seq + retention)
-    if (!eventsWriter || typeof eventsWriter.appendEventsTx !== 'function') {
-        throw new Error('attackEntity: events_writer_missing_appendEventsTx');
-    }
-
-    await eventsWriter.appendEventsTx(tx, { gameId, events });
 
       attackerSnapshot = { ...attacker, ...attackerWrite };
       targetSnapshot = { ...target, ...targetWrite };
