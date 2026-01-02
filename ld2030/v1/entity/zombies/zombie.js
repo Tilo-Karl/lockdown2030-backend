@@ -1,20 +1,74 @@
 // ld2030/v1/entity/zombies/zombie.js
+//
+// FINAL ZOMBIE DOCS (spawn-ready):
+// - Complete docs you can write as-is.
+// - Spawner may ONLY override: pos, createdAt, updatedAt, id/docId.
 
 const { BASE_ACTOR } = require('../base-actor');
 
-// 4 zombies: WALKER, RUNNER, SMART, HULK
-const ZOMBIE_WALKER = {
+// ---------------------------------------------------------------------------
+// ZOMBIE_BASE (common to all zombies)
+// ---------------------------------------------------------------------------
+const ZOMBIE_BASE = {
+  // -------------------------------------------------------------------------
+  // FROM base-entity.js (via base-actor.js): identity defaults
+  // -------------------------------------------------------------------------
   ...BASE_ACTOR,
+
+  // -------------------------------------------------------------------------
+  // ZOMBIE / identity (overrides)
+  // -------------------------------------------------------------------------
   type: 'ZOMBIE',
+  tags: ['ai:hostile'],
+  faction: 'zombie',
+  hostileTo: ['survivor', 'neutral'],
+
+  // -------------------------------------------------------------------------
+  // ZOMBIE / resources (FINAL defaults you control)
+  // -------------------------------------------------------------------------
+  maxHp: 60,
+  currentHp: 60,
+  maxAp: 6,
+  currentAp: 6,
+
+  hunger: 0,
+  hydration: 0,
+  stress: 0,
+
+  // -------------------------------------------------------------------------
+  // ZOMBIE / movement + combat defaults
+  // -------------------------------------------------------------------------
+  moveApCost: 1,
+  attackApCost: 2,
+  attackDamage: 8,
+  hitChance: 0.7,
+  armor: 0,
+  defense: 0,
+  speed: 1,
+  visionRange: 5,
+  aggroRange: 5,
+
+  // -------------------------------------------------------------------------
+  // ZOMBIE / carry + inventory defaults (usually irrelevant)
+  // -------------------------------------------------------------------------
+  carryCap: 0,
+  carryUsed: 0,
+  inventory: [],
+};
+
+// ---------------------------------------------------------------------------
+// Variants
+// ---------------------------------------------------------------------------
+
+const ZOMBIE_WALKER = {
+  ...ZOMBIE_BASE,
   kind: 'WALKER',
   name: 'Walker',
-  tags: ['ai:hostile'],
 
-  maxHp: 60,
-  maxAp: 2,
-  currentHp: 60,
-  currentAp: 2,
-
+  maxHp: 70,
+  currentHp: 70,
+  maxAp: 6,
+  currentAp: 6,
   speed: 1,
   attackDamage: 8,
   hitChance: 0.7,
@@ -22,17 +76,14 @@ const ZOMBIE_WALKER = {
 };
 
 const ZOMBIE_RUNNER = {
-  ...BASE_ACTOR,
-  type: 'ZOMBIE',
+  ...ZOMBIE_BASE,
   kind: 'RUNNER',
   name: 'Runner',
-  tags: ['ai:hostile'],
 
-  maxHp: 40,
-  maxAp: 3,
-  currentHp: 40,
-  currentAp: 3,
-
+  maxHp: 50,
+  currentHp: 50,
+  maxAp: 8,
+  currentAp: 8,
   speed: 2,
   attackDamage: 7,
   hitChance: 0.75,
@@ -40,17 +91,15 @@ const ZOMBIE_RUNNER = {
 };
 
 const ZOMBIE_SMART = {
-  ...BASE_ACTOR,
-  type: 'ZOMBIE',
+  ...ZOMBIE_BASE,
   kind: 'SMART',
   name: 'Smart Zombie',
   tags: ['ai:hostile', 'ai:smart'],
 
-  maxHp: 55,
-  maxAp: 3,
-  currentHp: 55,
-  currentAp: 3,
-
+  maxHp: 65,
+  currentHp: 65,
+  maxAp: 7,
+  currentAp: 7,
   speed: 1,
   attackDamage: 9,
   hitChance: 0.85,
@@ -59,17 +108,14 @@ const ZOMBIE_SMART = {
 };
 
 const ZOMBIE_HULK = {
-  ...BASE_ACTOR,
-  type: 'ZOMBIE',
+  ...ZOMBIE_BASE,
   kind: 'HULK',
   name: 'Hulk',
-  tags: ['ai:hostile'],
 
-  maxHp: 140,
-  maxAp: 2,
-  currentHp: 140,
-  currentAp: 2,
-
+  maxHp: 160,
+  currentHp: 160,
+  maxAp: 5,
+  currentAp: 5,
   speed: 1,
   attackDamage: 20,
   hitChance: 0.6,
@@ -78,6 +124,7 @@ const ZOMBIE_HULK = {
 };
 
 module.exports = {
+  ZOMBIE_BASE,
   ZOMBIE_WALKER,
   ZOMBIE_RUNNER,
   ZOMBIE_SMART,

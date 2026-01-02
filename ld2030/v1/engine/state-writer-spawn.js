@@ -34,20 +34,20 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
   }
 
   function buildActorDocFromTemplate(tmpl, extra) {
-    const maxHp = Number.isFinite(tmpl.maxHp) ? tmpl.maxHp : 50;
-    const maxAp = Number.isFinite(tmpl.maxAp) ? tmpl.maxAp : 2;
-    const faction = extractFactionFromTemplate(tmpl);
+  // tmpl is FINAL. Do not compute maxHp/maxAp or set currentHp/currentAp here.
+  // Spawner only adds spawn-only fields.
+  const faction = (tmpl && typeof tmpl.faction === 'string' && tmpl.faction.trim())
+    ? tmpl.faction.trim()
+    : extractFactionFromTemplate(tmpl);
 
-    return {
-      ...tmpl,
-      faction,
-      currentHp: maxHp,
-      currentAp: maxAp,
-      createdAt: serverTs(),
-      updatedAt: serverTs(),
-      ...extra,
-    };
-  }
+  return {
+    ...tmpl,
+    faction,              // only normalized; should already match your final doc
+    ...extra,             // pos override goes here
+    createdAt: serverTs(),
+    updatedAt: serverTs(),
+  };
+}
 
   function buildItemDocFromTemplate(tmpl, extra) {
     const durabilityMax = Number.isFinite(tmpl.durabilityMax) ? tmpl.durabilityMax : 1;

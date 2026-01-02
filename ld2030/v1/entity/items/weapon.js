@@ -7,6 +7,8 @@ const { ITEM_WEAPON_BASE } = require('../base-item');
 
 const ITEM_WEAPON_CROSSBOW = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'CROSSBOW',
   name: 'Crossbow',
   description: 'Quiet ranged weapon. Needs bolts.',
@@ -16,6 +18,7 @@ const ITEM_WEAPON_CROSSBOW = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 18,
   hitChanceBonus: -0.05,
   range: 3,
@@ -33,6 +36,8 @@ const ITEM_WEAPON_CROSSBOW = {
 
 const ITEM_WEAPON_PISTOL = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'PISTOL',
   name: '9mm Pistol',
   description: 'Compact firearm. Loud. Uses 9mm ammo.',
@@ -42,6 +47,7 @@ const ITEM_WEAPON_PISTOL = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 14,
   hitChanceBonus: 0.05,
   range: 3,
@@ -59,6 +65,8 @@ const ITEM_WEAPON_PISTOL = {
 
 const ITEM_WEAPON_SHOTGUN = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'SHOTGUN',
   name: 'Shotgun',
   description: 'Close-range monster. Uses shells.',
@@ -68,6 +76,7 @@ const ITEM_WEAPON_SHOTGUN = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 22,
   hitChanceBonus: -0.05,
   range: 2,
@@ -85,6 +94,8 @@ const ITEM_WEAPON_SHOTGUN = {
 
 const ITEM_WEAPON_RIFLE = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'RIFLE',
   name: 'Hunting Rifle',
   description: 'Longer range. Uses 5.56 ammo.',
@@ -94,6 +105,7 @@ const ITEM_WEAPON_RIFLE = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 20,
   hitChanceBonus: 0.1,
   range: 4,
@@ -113,6 +125,8 @@ const ITEM_WEAPON_RIFLE = {
 
 const ITEM_WEAPON_KNIFE = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'KNIFE',
   name: 'Knife',
   description: 'Fast. Cheap. Gets stuck sometimes.',
@@ -122,6 +136,7 @@ const ITEM_WEAPON_KNIFE = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 8,
   hitChanceBonus: 0.05,
   range: 1,
@@ -134,6 +149,8 @@ const ITEM_WEAPON_KNIFE = {
 
 const ITEM_WEAPON_BAT = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'BASEBALL_BAT',
   name: 'Baseball Bat',
   description: 'Blunt weapon. Reliable.',
@@ -143,6 +160,7 @@ const ITEM_WEAPON_BAT = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 10,
   hitChanceBonus: 0,
   range: 1,
@@ -155,6 +173,8 @@ const ITEM_WEAPON_BAT = {
 
 const ITEM_WEAPON_PIPE = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'PIPE',
   name: 'Metal Pipe',
   description: 'Heavy blunt weapon. Hits hard.',
@@ -164,6 +184,7 @@ const ITEM_WEAPON_PIPE = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 12,
   hitChanceBonus: -0.02,
   range: 1,
@@ -176,6 +197,8 @@ const ITEM_WEAPON_PIPE = {
 
 const ITEM_WEAPON_MACHETE = {
   ...ITEM_WEAPON_BASE,
+
+  // BASE_ENTITY / identity
   kind: 'MACHETE',
   name: 'Machete',
   description: 'Sharp, nasty, effective.',
@@ -185,6 +208,7 @@ const ITEM_WEAPON_MACHETE = {
   slotKey: 'main',
   layer: null,
 
+  // ITEM_TUNING
   damage: 14,
   hitChanceBonus: 0,
   range: 1,
