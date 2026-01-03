@@ -31,6 +31,8 @@ const ITEM_WEAPON_CROSSBOW = {
   weight: 4,
   value: 180,
   durabilityMax: 260,
+
+  durability: 260,
   loudness: 0,
 };
 
@@ -61,6 +63,8 @@ const ITEM_WEAPON_PISTOL = {
   weight: 2,
   value: 220,
   durabilityMax: 240,
+
+  durability: 240,
 };
 
 const ITEM_WEAPON_SHOTGUN = {
@@ -90,6 +94,8 @@ const ITEM_WEAPON_SHOTGUN = {
   weight: 5,
   value: 260,
   durabilityMax: 260,
+
+  durability: 260,
 };
 
 const ITEM_WEAPON_RIFLE = {
@@ -119,6 +125,8 @@ const ITEM_WEAPON_RIFLE = {
   weight: 5,
   value: 300,
   durabilityMax: 280,
+
+  durability: 280,
 };
 
 // MELEE
@@ -145,6 +153,8 @@ const ITEM_WEAPON_KNIFE = {
   weight: 1,
   value: 30,
   durabilityMax: 120,
+
+  durability: 120,
 };
 
 const ITEM_WEAPON_BAT = {
@@ -169,6 +179,8 @@ const ITEM_WEAPON_BAT = {
   weight: 3,
   value: 25,
   durabilityMax: 160,
+
+  durability: 160,
 };
 
 const ITEM_WEAPON_PIPE = {
@@ -193,6 +205,8 @@ const ITEM_WEAPON_PIPE = {
   weight: 4,
   value: 18,
   durabilityMax: 220,
+
+  durability: 220,
 };
 
 const ITEM_WEAPON_MACHETE = {
@@ -217,6 +231,8 @@ const ITEM_WEAPON_MACHETE = {
   weight: 2,
   value: 60,
   durabilityMax: 220,
+
+  durability: 220,
 };
 
 module.exports = {

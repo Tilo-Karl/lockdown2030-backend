@@ -195,12 +195,6 @@ function generateMap({
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
 
-  const terrainPalette = {};
-  Object.values(TILES).forEach((code) => {
-    const meta = TILE_META[code];
-    if (meta && meta.colorHex) terrainPalette[code] = meta.colorHex;
-  });
-
   const mapMeta = {
     version: 1,
     lab,
@@ -212,8 +206,6 @@ function generateMap({
     },
     params: { buildingChance, minLabDistance },
     buildings,
-    buildingPalette: MAP.BUILDING_PALETTE,
-    terrainPalette,
     terrain: rows.map((r) => r.join('')),
     districts: {
       enabled: districtsEnabled,

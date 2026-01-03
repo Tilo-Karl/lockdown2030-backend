@@ -13,7 +13,8 @@ const BASE_ITEM = {
   tags: [],
 
   destructible: true,
-  durabilityMax: 1,
+  durabilityMax: 50,
+  durability: 50,
 
   // Carried items are owned by an actorId.
   carriedBy: null,

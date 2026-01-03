@@ -1,10 +1,4 @@
 // ld2030/v1/engine/state-writer-spawn.js
-// Spawn helpers (zombies, humans, items).
-//
-// BIG BANG V1 COMPLIANCE:
-// - Actors MUST have pos: { x, y, z, layer } where layer ∈ {0,1}
-// - No legacy isInsideBuilding field (layer is the truth)
-// - Spawned actors/items default to OUTSIDE: layer=0, z=0
 
 const { resolveEntityConfig } = require('../entity');
 
@@ -14,50 +8,25 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
   if (!state) throw new Error('state-writer-spawn: state is required');
 
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
-
   const { zombiesCol, humansCol, itemsCol } = state;
 
-  function extractFactionFromTemplate(tmpl) {
-    if (tmpl && typeof tmpl.faction === 'string' && tmpl.faction.trim()) {
-      return tmpl.faction.trim();
-    }
-    const tags = Array.isArray(tmpl?.tags) ? tmpl.tags : [];
-    for (const t of tags) {
-      if (typeof t !== 'string') continue;
-      if (t.startsWith('faction:')) {
-        const f = t.slice('faction:'.length).trim();
-        if (f) return f;
-      }
-    }
-    if (String(tmpl?.type || '').toUpperCase() === 'ZOMBIE') return 'zombie';
-    return 'neutral';
-  }
-
+  // tmpl is FINAL. Spawner only adds spawn-only fields.
   function buildActorDocFromTemplate(tmpl, extra) {
-  // tmpl is FINAL. Do not compute maxHp/maxAp or set currentHp/currentAp here.
-  // Spawner only adds spawn-only fields.
-  const faction = (tmpl && typeof tmpl.faction === 'string' && tmpl.faction.trim())
-    ? tmpl.faction.trim()
-    : extractFactionFromTemplate(tmpl);
-
-  return {
-    ...tmpl,
-    faction,              // only normalized; should already match your final doc
-    ...extra,             // pos override goes here
-    createdAt: serverTs(),
-    updatedAt: serverTs(),
-  };
-}
-
-  function buildItemDocFromTemplate(tmpl, extra) {
-    const durabilityMax = Number.isFinite(tmpl.durabilityMax) ? tmpl.durabilityMax : 1;
-
     return {
       ...tmpl,
-      durability: durabilityMax,
+      ...extra,              // pos override etc
       createdAt: serverTs(),
       updatedAt: serverTs(),
-      ...extra,
+    };
+  }
+
+  // tmpl is FINAL. Spawner only adds spawn-only fields.
+  function buildItemDocFromTemplate(tmpl, extra) {
+    return {
+      ...tmpl,
+      ...extra,              // pos + carriedBy etc
+      createdAt: serverTs(),
+      updatedAt: serverTs(),
     };
   }
 
@@ -90,9 +59,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('ZOMBIE', kindKey);
       if (!tmpl) return;
 
-      const doc = buildActorDocFromTemplate(tmpl, {
-        pos: posOutside(x, y),
-      });
+      const doc = buildActorDocFromTemplate(tmpl, { pos: posOutside(x, y) });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -128,9 +95,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
       const tmpl = resolveEntityConfig('HUMAN', kindKey);
       if (!tmpl) return;
 
-      const doc = buildActorDocFromTemplate(tmpl, {
-        pos: posOutside(x, y),
-      });
+      const doc = buildActorDocFromTemplate(tmpl, { pos: posOutside(x, y) });
 
       const ref = col.doc();
       batch.set(ref, doc);
@@ -168,7 +133,7 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
       const doc = buildItemDocFromTemplate(tmpl, {
         pos: posOutside(x, y),
-        carriedBy: null,
+        carriedBy: null,     // spawn-only truth
       });
 
       const ref = col.doc();
@@ -180,9 +145,5 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
     return { ok: true, count };
   }
 
-  return {
-    spawnZombies,
-    spawnHumans,
-    spawnItems,
-  };
+  return { spawnZombies, spawnHumans, spawnItems };
 };

@@ -12,6 +12,7 @@ const { initWorldTimeDoc } = require('./world/world-time');
 const { cellIdFor, writeOutsideCells, writeInsideCells } = require('./world/cells');
 const { writeDoorEdges, writeStairsEdges } = require('./world/edges');
 const { writeDistrictStates } = require('./world/district-state');
+const { spawnAllForNewGame } = require('./state-spawn');
 
 module.exports = function registerInitGame(app, { db, admin, state, base }) {
   const BASE = base || '/api/ld2030/v1';
@@ -112,6 +113,14 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
         admin,
         cellsCol,
         mapMeta,
+      });
+
+      await spawnAllForNewGame({
+        gameId,
+        state,
+        spawnWriter: state.spawnWriter,
+        lab: mapMeta?.lab || null,
+        safeRadiusFromLab: mapMeta?.spawn?.safeRadiusFromLab,
       });
 
       // 6) Edges (doors + stairs)

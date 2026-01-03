@@ -24,6 +24,8 @@ const ITEM_ARMOR_RIOT_VEST = {
   value: 250,
   weight: 6,
   durabilityMax: 250,
+
+  durability: 250,
 };
 
 const ITEM_ARMOR_MOTORCYCLE_JACKET = {
@@ -46,6 +48,8 @@ const ITEM_ARMOR_MOTORCYCLE_JACKET = {
   value: 120,
   weight: 3,
   durabilityMax: 180,
+
+  durability: 180,
 };
 
 const ITEM_ARMOR_BULLETPROOF_VEST = {
@@ -68,6 +72,8 @@ const ITEM_ARMOR_BULLETPROOF_VEST = {
   value: 220,
   weight: 5,
   durabilityMax: 220,
+
+  durability: 220,
 };
 
 // Non-layered body-part wearables (single slot per part)
@@ -91,6 +97,8 @@ const ITEM_ARMOR_WORK_GLOVES = {
   value: 20,
   weight: 1,
   durabilityMax: 120,
+
+  durability: 120,
 };
 
 const ITEM_ARMOR_HELMET = {
@@ -113,6 +121,8 @@ const ITEM_ARMOR_HELMET = {
   value: 60,
   weight: 2,
   durabilityMax: 200,
+
+  durability: 200,
 };
 
 // Clothing (torso outer layer, plus feet)
@@ -136,6 +146,8 @@ const ITEM_CLOTHING_HOODIE = {
   value: 10,
   weight: 1,
   durabilityMax: 80,
+
+  durability: 80,
 };
 
 const ITEM_CLOTHING_DENIM_JACKET = {
@@ -158,6 +170,8 @@ const ITEM_CLOTHING_DENIM_JACKET = {
   value: 18,
   weight: 2,
   durabilityMax: 120,
+
+  durability: 120,
 };
 
 const ITEM_CLOTHING_BOOTS = {
@@ -180,6 +194,8 @@ const ITEM_CLOTHING_BOOTS = {
   value: 15,
   weight: 2,
   durabilityMax: 160,
+
+  durability: 160,
 };
 
 module.exports = {

@@ -184,9 +184,7 @@ function derivedInsideMaxes(type) {
 async function writeOutsideCells({ db, admin, cellsCol, w, h, mapMeta }) {
   const serverTs = () => admin.firestore.FieldValue.serverTimestamp();
 
-  const tileMeta = (mapMeta?.tileMeta && typeof mapMeta.tileMeta === 'object')
-    ? mapMeta.tileMeta
-    : DEFAULT_TILE_META;
+  const tileMeta = DEFAULT_TILE_META;
 
   // Precompute footprint -> building “stamp” so actions can know “a building exists here”
   // WITHOUT touching mapMeta at runtime.

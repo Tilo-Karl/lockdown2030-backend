@@ -11,6 +11,7 @@
 
 const { GRID } = require('./config');
 const { resolveEntityConfig } = require('./entity');
+const { buildCellPalette } = require('./config/cell-palette');
 const makeTx = require('./engine/tx');
 
 const PLAYER_CFG = resolveEntityConfig('HUMAN', 'PLAYER');
@@ -141,6 +142,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
         const g = gSnap.data() || {};
         const w = clampNum(g.gridsize?.w ?? g.w, GRID.MIN_W, GRID.MAX_W, GRID.DEFAULT_W);
         const h = clampNum(g.gridsize?.h ?? g.h, GRID.MIN_H, GRID.MAX_H, GRID.DEFAULT_H);
+        const cellPaletteVersion = Number(g.cellPalette?.version) || buildCellPalette().version;
 
         const pRef = state.playersCol(gameId).doc(String(uid));
         const pSnap = await tx.get(pRef);
@@ -161,6 +163,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
               maxAp: p.maxAp ?? null,
               currentHp: p.currentHp ?? null,
               currentAp: p.currentAp ?? null,
+              cellPaletteVersion,
             };
           }
 
@@ -180,6 +183,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
             maxAp: p2.maxAp ?? null,
             currentHp: p2.currentHp ?? null,
             currentAp: p2.currentAp ?? null,
+            cellPaletteVersion,
           };
         }
 
@@ -216,6 +220,7 @@ module.exports = function registerJoinGame(app, { db, admin, state, base }) {
           maxAp: payload.maxAp ?? null,
           currentHp: payload.currentHp ?? null,
           currentAp: payload.currentAp ?? null,
+          cellPaletteVersion,
         };
       });
 

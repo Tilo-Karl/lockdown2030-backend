@@ -12,10 +12,9 @@
 // Runtime init (cells/edges/districtState) is done in init-game.js.
 
 const { generateMap } = require('./map-gen');
-const { TILE_META } = require('./config');
+const { buildCellPalette } = require('./config/cell-palette');
 
 const makeSpawnStateWriter = require('./engine/state-writer-spawn');
-const { spawnAllForNewGame } = require('./state-spawn');
 
 module.exports = function makeState(db, admin) {
   const gameRef    = (gameId) => db.collection('games').doc(String(gameId));
@@ -81,29 +80,9 @@ module.exports = function makeState(db, admin) {
 
     const mapDoc = generateMap({ seed, w, h });
 
-    // Tile meta (blueprint helper)
-    const tileMetaForFirestore = {};
-    if (TILE_META && typeof TILE_META === 'object') {
-      Object.entries(TILE_META).forEach(([code, meta]) => {
-        if (!meta) return;
-        tileMetaForFirestore[code] = {
-          label: meta.label || null,
-          colorHex: meta.colorHex || null,
-          blocksMovement: meta.blocksMovement === true,
-          blocksVision: meta.blocksVision === true,
-          playerSpawnAllowed: meta.playerSpawnAllowed !== false,
-          zombieSpawnAllowed: meta.zombieSpawnAllowed !== false,
-          moveCost: Number.isFinite(meta.moveCost) ? meta.moveCost : 1,
-        };
-      });
-    }
-
     const batch = db.batch();
     const mapMeta = mapDoc ? mapDoc.meta : undefined;
-
-    const mapMetaForSpawn = mapMeta
-      ? { ...mapMeta, tileMeta: tileMetaForFirestore }
-      : mapMeta;
+    const cellPalette = buildCellPalette();
 
     batch.set(
       gRef,
@@ -115,6 +94,8 @@ module.exports = function makeState(db, admin) {
         round: 1,
         startedAt: admin.firestore.FieldValue.serverTimestamp(),
 
+        cellPalette,
+
         // Blueprint only. Runtime state is in cells/edges/districtState/noiseTiles.
         mapMeta: mapMeta
           ? {
@@ -122,12 +103,9 @@ module.exports = function makeState(db, admin) {
               lab: mapMeta.lab || null,
               center: mapMeta.center || null,
               terrain: mapMeta.terrain || null,
-              terrainPalette: mapMeta.terrainPalette || null,
               passableChars: mapMeta.passableChars ?? null,
               params: mapMeta.params ?? null,
               buildings: mapMeta.buildings || [],
-              buildingPalette: mapMeta.buildingPalette || null,
-              tileMeta: tileMetaForFirestore,
               cityName: mapMeta.cityName || null,
               districts: mapMeta.districts || null,
             }
@@ -139,13 +117,6 @@ module.exports = function makeState(db, admin) {
     );
 
     await batch.commit();
-
-    // Entity spawns (players/zombies/humans/items). This is not runtime world init.
-    await spawnAllForNewGame({
-      gameId,
-      mapMeta: mapMetaForSpawn,
-      spawnWriter,
-    });
   }
 
   async function readGridSize(gameId, fallback = { w: 32, h: 32 }) {
@@ -185,5 +156,6 @@ module.exports = function makeState(db, admin) {
     writeMapAndGame,
 
     readGridSize,
+    spawnWriter,
   };
 };

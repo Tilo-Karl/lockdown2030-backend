@@ -70,7 +70,7 @@ const MAP = {
     'WATER_PLANT',
   ],
 
-  // Simple color palette for buildings (sent to clients via mapMeta.buildingPalette)
+  // Simple color palette for buildings (consumed by cellPalette builder)
   // Palette MUST include upgrade-result types too, even if generator never picks them directly.
   BUILDING_PALETTE: {
     HOUSE: '#f4e3c1',

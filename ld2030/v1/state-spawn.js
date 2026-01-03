@@ -2,38 +2,88 @@
 // Spawn zombies, humans and items for a new game.
 
 const { ZOMBIE } = require('./config/config-game');
+const { TILE_META } = require('./config/config-tile');
 
-async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
-  if (!mapMeta || !Array.isArray(mapMeta.terrain) || mapMeta.terrain.length === 0) return;
+function tileMetaFor(cell) {
+  const code = cell?.terrain;
+  return code != null ? TILE_META[String(code)] || null : null;
+}
 
-  const rows = mapMeta.terrain;
-  const height = rows.length;
-  const width = rows[0]?.length || 0;
-  if (width <= 0 || height <= 0) return;
+function canSpawnZombieOn(cell) {
+  const meta = tileMetaFor(cell);
+  if (!meta) return false;
+  return meta.zombieSpawnAllowed !== false;
+}
 
-  // Comes from games/{gameId}.mapMeta.tileMeta
-  const tileMeta = mapMeta.tileMeta || {};
+function canSpawnHumanOn(cell) {
+  const meta = tileMetaFor(cell);
+  if (!meta) return false;
+  return meta.playerSpawnAllowed !== false;
+}
 
-  function canSpawnZombieOn(ch) {
-    const m = tileMeta[ch];
-    if (!m) return false;
-    return m.zombieSpawnAllowed !== false;
-  }
+const canSpawnItemOn = canSpawnHumanOn;
 
-  function canSpawnHumanOn(ch) {
-    const m = tileMeta[ch];
-    if (!m) return false;
-    return m.playerSpawnAllowed !== false;
-  }
+function isInLabRadius(cell, lab, radius) {
+  if (!lab || !Number.isFinite(lab.x) || !Number.isFinite(lab.y)) return false;
+  if (!Number.isFinite(radius) || radius <= 0) return false;
+  const dx = cell.x - lab.x;
+  const dy = cell.y - lab.y;
+  return Math.sqrt(dx * dx + dy * dy) <= radius;
+}
 
-  function canSpawnItemOn(ch) {
-    const m = tileMeta[ch];
-    if (!m) return false;
-    // Items follow the same “don’t spawn where players shouldn’t spawn” rule
-    return m.playerSpawnAllowed !== false;
-  }
+function pickRandom(list) {
+  if (!Array.isArray(list) || list.length === 0) return null;
+  const idx = Math.floor(Math.random() * list.length);
+  return list[idx] || null;
+}
 
-  const totalTiles = width * height;
+async function loadOutsideCells(state, gameId) {
+  if (!state || typeof state.cellsCol !== 'function') return [];
+  const col = state.cellsCol(gameId);
+  const snap = await col.where('layer', '==', 0).get();
+  const out = [];
+  snap.forEach((doc) => {
+    const data = doc.data() || {};
+    const x = Number(data.x);
+    const y = Number(data.y);
+    const z = Number(data.z ?? 0);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    if (z !== 0) return;
+    if (data.blocksMove === true) return;
+    out.push({
+      x,
+      y,
+      terrain: data.terrain ?? null,
+    });
+  });
+  return out;
+}
+
+async function spawnAllForNewGame({
+  gameId,
+  state,
+  spawnWriter,
+  lab = null,
+  safeRadiusFromLab = 0,
+}) {
+  if (!gameId) throw new Error('spawnAllForNewGame: missing_gameId');
+  if (!state || typeof state.cellsCol !== 'function') throw new Error('spawnAllForNewGame: state_missing_cellsCol');
+  if (!spawnWriter) throw new Error('spawnAllForNewGame: spawnWriter_required');
+
+  const outsideCells = await loadOutsideCells(state, gameId);
+  if (!outsideCells.length) return;
+
+  const safeRadius = Number.isFinite(safeRadiusFromLab) ? Math.max(0, Number(safeRadiusFromLab)) : 0;
+
+  const zombieCandidates = outsideCells.filter((cell) => canSpawnZombieOn(cell));
+  const humanCandidates = outsideCells.filter(
+    (cell) => canSpawnHumanOn(cell) && !isInLabRadius(cell, lab, safeRadius)
+  );
+  const itemCandidates = outsideCells.filter(
+    (cell) => canSpawnItemOn(cell) && !isInLabRadius(cell, lab, safeRadius)
+  );
+
+  const totalTiles = outsideCells.length;
 
   // ---------------------------------------------------------------------------
   // Zombies
@@ -60,16 +110,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
 
   while (spawnedZ < desiredZombies && safetyZ < maxTriesZ) {
     safetyZ += 1;
-
-    const x = Math.floor(Math.random() * width);
-    const y = Math.floor(Math.random() * height);
-    const row = rows[y];
-    if (!row) continue;
-
-    const ch = row.charAt(x);
-    if (!canSpawnZombieOn(ch)) continue;
-
-    zombieSpawns.push({ x, y, kind: pickZombieKind() });
+    const cell = pickRandom(zombieCandidates);
+    if (!cell) break;
+    zombieSpawns.push({ x: cell.x, y: cell.y, kind: pickZombieKind() });
     spawnedZ += 1;
   }
 
@@ -101,16 +144,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
 
   while (spawnedH < desiredHumans && safetyH < maxTriesH) {
     safetyH += 1;
-
-    const x = Math.floor(Math.random() * width);
-    const y = Math.floor(Math.random() * height);
-    const row = rows[y];
-    if (!row) continue;
-
-    const ch = row.charAt(x);
-    if (!canSpawnHumanOn(ch)) continue;
-
-    humanSpawns.push({ x, y, kind: pickHumanKind() });
+    const cell = pickRandom(humanCandidates);
+    if (!cell) break;
+    humanSpawns.push({ x: cell.x, y: cell.y, kind: pickHumanKind() });
     spawnedH += 1;
   }
 
@@ -159,16 +195,9 @@ async function spawnAllForNewGame({ gameId, mapMeta, spawnWriter }) {
 
   while (spawnedI < desiredItems && safetyI < maxTriesI) {
     safetyI += 1;
-
-    const x = Math.floor(Math.random() * width);
-    const y = Math.floor(Math.random() * height);
-    const row = rows[y];
-    if (!row) continue;
-
-    const ch = row.charAt(x);
-    if (!canSpawnItemOn(ch)) continue;
-
-    itemSpawns.push({ x, y, kind: pickItemKind() });
+    const cell = pickRandom(itemCandidates);
+    if (!cell) break;
+    itemSpawns.push({ x: cell.x, y: cell.y, kind: pickItemKind() });
     spawnedI += 1;
   }
 
