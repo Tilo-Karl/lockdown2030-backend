@@ -193,6 +193,8 @@ async function writeOutsideCells({ db, admin, cellsCol, w, h, mapMeta }) {
   let batch = db.batch();
   let ops = 0;
   let written = 0;
+  const stampHistogram = new Map();
+  const stampSamples = [];
 
   async function commitIfFull() {
     if (ops >= 450) {
@@ -210,7 +212,13 @@ async function writeOutsideCells({ db, admin, cellsCol, w, h, mapMeta }) {
       const id = cellIdFor(x, y, 0, 0);
       const ref = cellsCol.doc(id);
 
-      const bStamp = buildingAtXY.get(`${x},${y}`) || null;
+      const keyXY = `${x},${y}`;
+      const bStamp = buildingAtXY.get(keyXY) || null;
+      if (bStamp) {
+        const type = String(bStamp.type || 'UNKNOWN');
+        stampHistogram.set(type, (stampHistogram.get(type) || 0) + 1);
+        if (stampSamples.length < 10) stampSamples.push({ x, y, type });
+      }
 
       batch.set(
         ref,
@@ -246,6 +254,8 @@ async function writeOutsideCells({ db, admin, cellsCol, w, h, mapMeta }) {
   }
 
   if (ops > 0) await batch.commit();
+  const stampEntries = Array.from(stampHistogram.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  console.log('[cells] outside building stamp histogram', { top10: stampEntries, totalStamped: Array.from(stampHistogram.values()).reduce((a, b) => a + b, 0), sample: stampSamples });
   return { written };
 }
 

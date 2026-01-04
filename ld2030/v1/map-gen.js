@@ -10,7 +10,7 @@ const {
   SPAWN_AVOID_TILE_CODES,
 } = require('./config');
 
-const { extractBuildings, normalizeBuildingType } = require('./map-buildings');
+const { normalizeBuildingType } = require('./map-buildings');
 const { generateCityLayout } = require('./city-layout');
 const { applyNamesToMapMeta } = require('./map-namegen');
 
@@ -44,17 +44,53 @@ function generateMap({
     minLabDistance,
   });
 
-  const B = TILES.BUILD;
-
   const rndForBuildings = mulberry32(seed | 0);
-  const buildings = extractBuildings(rows, w, h, B, rndForBuildings);
 
   const districtsEnabled = DISTRICTS && DISTRICTS.ENABLED === true;
   const districtCount = districtsEnabled
     ? (typeof DISTRICTS.countForGrid === 'function' ? DISTRICTS.countForGrid({ w, h }) : 1)
     : 1;
 
-  // --- Generic buildings for every BUILD tile (Option C + zoning) ---
+  const districtForTile = (tile) => {
+    if (!districtsEnabled || typeof DISTRICTS.districtForPos !== 'function') return 0;
+    return DISTRICTS.districtForPos({ x: tile.x, y: tile.y, w, h, count: districtCount });
+  };
+
+  const tilesByDistrict = new Map();
+  (buildTiles || []).forEach((pos) => {
+    if (!pos) return;
+    const x = Number(pos.x);
+    const y = Number(pos.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    const districtId = districtForTile({ x, y });
+    const list = tilesByDistrict.get(districtId) || [];
+    list.push({ x, y, zone: pos.zone || 'RES' });
+    tilesByDistrict.set(districtId, list);
+  });
+
+  const requiredPerDistrict = Array.isArray(MAP?.REQUIRED_PER_DISTRICT)
+    ? MAP.REQUIRED_PER_DISTRICT.map((item) => item?.type || item).filter(Boolean)
+    : [];
+
+  const buildings = [];
+
+  function randomInt(min, max) {
+    return Math.floor(rndForBuildings() * (max - min + 1)) + min;
+  }
+
+  const smallTypes = new Set([
+    'HOUSE', 'SHOP', 'BAR', 'RESTAURANT', 'PHARMACY', 'CHURCH', 'SAFEHOUSE',
+    'OUTPOST', 'MOTEL', 'BUNKER',
+  ]);
+  const facilityTypes = new Set(requiredPerDistrict);
+
+  function floorsForType(type) {
+    if (facilityTypes.has(type)) return randomInt(1, 4);
+    if (smallTypes.has(type)) return randomInt(1, 2);
+    // larger structures
+    return randomInt(2, 6);
+  }
+
   const genericTypes = [
     'HOUSE',
     'SHOP',
@@ -101,99 +137,55 @@ function generateMap({
     ],
   };
 
-  const hasSpecial = new Set();
-  for (const b of buildings) {
-    const footprint = Array.isArray(b.tiles) ? b.tiles : [];
-    for (const t of footprint) {
-      hasSpecial.add(`${t.x},${t.y}`);
-    }
-  }
-
-  for (const pos of buildTiles) {
-    const key = `${pos.x},${pos.y}`;
-    if (hasSpecial.has(key)) continue;
-
-    const zone = pos.zone || 'RES';
-    const pool = zonePools[zone] || genericTypes;
-    const baseType = pool[Math.floor(rndForBuildings() * pool.length)] || 'HOUSE';
-
-    const floors = 1 + Math.floor(rndForBuildings() * 6);
-    const finalType = normalizeBuildingType(baseType, floors);
-
-    const tiles = [{ x: pos.x, y: pos.y }];
-    buildings.push({
-      id: `g_${key}`,
-      type: finalType,
-      root: { x: pos.x, y: pos.y },
-      tiles,
-      tileCount: tiles.length,
-      floors,
-    });
-  }
-
-  const facilityAssignments = [];
-  if (Array.isArray(facilities)) {
-    facilities.forEach((perDistrict) => {
-      if (!perDistrict || typeof perDistrict !== 'object') return;
-      Object.entries(perDistrict).forEach(([type, pos]) => {
-        if (!pos || typeof pos !== 'object') return;
-        const x = Number(pos.x);
-        const y = Number(pos.y);
-        if (!Number.isFinite(x) || !Number.isFinite(y)) return;
-        facilityAssignments.push({
-          type: String(type || '').trim(),
-          x,
-          y,
-        });
+  tilesByDistrict.forEach((tiles, districtId) => {
+    const available = [...tiles];
+    requiredPerDistrict.forEach((reqType) => {
+      if (!available.length) return;
+      const idx = Math.floor(rndForBuildings() * available.length);
+      const tile = available.splice(idx, 1)[0];
+      if (!tile) return;
+      const floors = floorsForType(reqType);
+      buildings.push({
+        id: `fac_${reqType}_${tile.x},${tile.y}`,
+        type: reqType,
+        root: { x: tile.x, y: tile.y },
+        tiles: [{ x: tile.x, y: tile.y }],
+        tileCount: 1,
+        floors,
+        districtId,
       });
     });
-  }
 
-  if (facilityAssignments.length > 0) {
-    const coordToBuilding = new Map();
-    function indexBuilding(bld) {
-      const tiles = Array.isArray(bld.tiles) ? bld.tiles : [];
-      for (const t of tiles) {
-        const key = `${t.x},${t.y}`;
-        coordToBuilding.set(key, bld);
-      }
-    }
-    buildings.forEach(indexBuilding);
-
-    for (const fac of facilityAssignments) {
-      if (!fac.type) continue;
-      const key = `${fac.x},${fac.y}`;
-      let target = coordToBuilding.get(key);
-      if (!target) {
-        target = {
-          id: `fac_${fac.type}_${key}`,
-          type: fac.type,
-          root: { x: fac.x, y: fac.y },
-          tiles: [{ x: fac.x, y: fac.y }],
-          tileCount: 1,
-          floors: 1,
-        };
-        buildings.push(target);
-        indexBuilding(target);
-      } else {
-        target.type = fac.type;
-      }
-    }
-  }
-
-  // Assign districtId to every building (for UI outlines + gameplay)
-  if (districtsEnabled && typeof DISTRICTS.districtForPos === 'function') {
-    for (const b of buildings) {
-      const rx = b?.root?.x;
-      const ry = b?.root?.y;
-      b.districtId = DISTRICTS.districtForPos({ x: rx, y: ry, w, h, count: districtCount });
-    }
-  } else {
-    for (const b of buildings) b.districtId = 0;
-  }
+    available.forEach((tile) => {
+      const zone = tile.zone || 'RES';
+      const pool = zonePools[zone] || genericTypes;
+      const baseType = pool[Math.floor(rndForBuildings() * pool.length)] || 'HOUSE';
+      const baseFloors = floorsForType(baseType);
+      const finalType = normalizeBuildingType(baseType, baseFloors);
+      buildings.push({
+        id: `g_${tile.x},${tile.y}`,
+        type: finalType,
+        root: { x: tile.x, y: tile.y },
+        tiles: [{ x: tile.x, y: tile.y }],
+        tileCount: 1,
+        floors: baseFloors,
+        districtId,
+      });
+    });
+  });
 
   const cx = Math.floor(w / 2);
   const cy = Math.floor(h / 2);
+
+  const histogram = buildings.reduce((acc, b) => {
+    const type = String(b?.type || 'UNKNOWN');
+    acc[type] = (acc[type] || 0) + 1;
+    return acc;
+  }, {});
+  const entries = Object.entries(histogram).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const facilityCount = buildings.filter((b) => String(b?.id || '').startsWith('fac_')).length;
+  const genericCount = buildings.length - facilityCount;
+  console.log('[map-gen] building type histogram', { top10: entries, total: buildings.length, facilityCount, genericCount });
 
   const mapMeta = {
     version: 1,
