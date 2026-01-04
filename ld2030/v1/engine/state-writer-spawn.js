@@ -1,6 +1,7 @@
 // ld2030/v1/engine/state-writer-spawn.js
 
 const { resolveEntityConfig } = require('../entity');
+const { parseCellId } = require('../world/cells');
 
 module.exports = function makeSpawnStateWriter({ db, admin, state }) {
   if (!db) throw new Error('state-writer-spawn: db is required');
@@ -32,6 +33,12 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
 
   function posOutside(x, y) {
     return { x, y, z: 0, layer: 0 };
+  }
+
+  function posFromCellId(cellId) {
+    const parsed = parseCellId(cellId);
+    if (!parsed) throw new Error('spawnItemAtCell: invalid_cellId');
+    return { x: parsed.x, y: parsed.y, z: parsed.z, layer: parsed.layer };
   }
 
   async function spawnZombies(gameId, spawns) {
@@ -145,5 +152,28 @@ module.exports = function makeSpawnStateWriter({ db, admin, state }) {
     return { ok: true, count };
   }
 
-  return { spawnZombies, spawnHumans, spawnItems };
+  async function spawnItemAtCell({ gameId, cellId, kind }) {
+    if (!gameId) throw new Error('spawnItemAtCell: missing gameId');
+    if (!cellId) throw new Error('spawnItemAtCell: missing cellId');
+    if (!kind) throw new Error('spawnItemAtCell: missing kind');
+
+    const pos = posFromCellId(cellId);
+    const col = itemsCol(gameId);
+
+    const kindKey = String(kind || '').trim().toUpperCase();
+    const tmpl = resolveEntityConfig('ITEM', kindKey);
+    if (!tmpl) throw new Error('spawnItemAtCell: invalid_kind');
+
+    const doc = buildItemDocFromTemplate(tmpl, {
+      pos,
+      carriedBy: null,
+    });
+
+    const ref = col.doc();
+    await ref.set(doc);
+
+    return { ok: true, itemId: ref.id, kind: kindKey, pos };
+  }
+
+  return { spawnZombies, spawnHumans, spawnItems, spawnItemAtCell };
 };

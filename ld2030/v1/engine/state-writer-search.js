@@ -114,10 +114,8 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
       const remainingRaw =
         Number.isFinite(search.remaining) ? search.remaining : maxRemaining;
 
-      const remaining = Math.trunc(remainingRaw);
-      if (remaining <= 0) throw new Error('searchCell: cell_depleted');
-
-      const nextRemaining = Math.max(0, remaining - 1);
+      const remaining = Math.max(0, Math.trunc(remainingRaw));
+      const nextRemaining = remaining > 0 ? remaining - 1 : 0;
       const nextCount = (Number.isFinite(search.searchedCount) ? search.searchedCount : 0) + 1;
 
       setWithMeta(tx, playerRef, { currentAp: nextAp }, pSnap);
@@ -145,6 +143,7 @@ module.exports = function makeSearchStateWriter({ db, admin, state }) {
         currentAp: nextAp,
         remaining: nextRemaining,
         maxRemaining,
+        remainingBefore: remaining,
       };
     });
   }

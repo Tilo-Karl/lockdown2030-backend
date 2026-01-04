@@ -316,7 +316,37 @@ function getWeightedLoot(buildingType) {
   return rows.map(([kind, weight]) => ({ item: getItem(kind), weight }));
 }
 
+function rollLootKind(buildingType, rng = Math.random) {
+  const rows = Array.isArray(LOOT_TABLES[buildingType]) ? LOOT_TABLES[buildingType] : [];
+  if (!rows.length) return null;
+
+  const totalWeight = rows.reduce((sum, row) => {
+    const num = Number(row[1]);
+    const w = Number.isFinite(num) ? num : 0;
+    return sum + w;
+  }, 0);
+
+  if (totalWeight <= 0) return null;
+
+  const rollFn = typeof rng === 'function' ? rng : Math.random;
+  const target = rollFn() * totalWeight;
+  let acc = 0;
+
+  for (const [kind, weight] of rows) {
+    const num = Number(weight);
+    const w = Number.isFinite(num) ? num : 0;
+    if (w <= 0) continue;
+    acc += w;
+    if (target < acc) {
+      return String(kind);
+    }
+  }
+
+  return String(rows[rows.length - 1][0]);
+}
+
 module.exports = {
   LOOT_TABLES,
   getWeightedLoot,
+  rollLootKind,
 };

@@ -13,6 +13,8 @@ const EVENT_TYPES = Object.freeze({
   COMBAT_HIT: 'combat.hit',
   COMBAT_MISS: 'combat.miss',
   COMBAT_KILL: 'combat.kill',
+  SEARCH_SUCCESS: 'search.success',
+  SEARCH_EMPTY: 'search.empty',
 });
 
 // Frontend maps messageKey + args -> localized string (stable)
@@ -21,6 +23,8 @@ const MESSAGE_KEYS = Object.freeze({
   COMBAT_HIT: 'combat.hit',
   COMBAT_MISS: 'combat.miss',
   COMBAT_KILL: 'combat.kill',
+  SEARCH_SUCCESS: 'search.success',
+  SEARCH_EMPTY: 'search.empty',
 });
 
 module.exports = {

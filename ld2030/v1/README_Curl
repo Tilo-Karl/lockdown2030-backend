@@ -10,6 +10,8 @@ curl -X POST "https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init
   -H "Content-Type: application/json" \
   -d '{"gameId":"lockdown2030","mapId":"world-1","force":true}'
 
+  Below doesn't work because no "force"
+
   curl -sS -X POST \
   -H "Content-Type: application/json" \
   https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init-game \
@@ -27,4 +29,3 @@ curl -X POST "https://ld2030-52812703983.europe-west4.run.app/api/ld2030/v1/init
   -H "Content-Type: application/json" \
   -d '{"gameId":"lockdown2030"}'
 
-  

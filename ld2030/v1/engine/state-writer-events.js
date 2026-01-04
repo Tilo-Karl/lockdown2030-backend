@@ -11,7 +11,7 @@ module.exports = function makeEventsWriter({ db, admin, state }) {
   if (!state) throw new Error('state-writer-events: state is required');
 
   const txHelpers = makeTx({ db, admin });
-  const { setWithMeta, serverTs } = txHelpers;
+  const { setWithMeta, serverTs, run } = txHelpers;
 
   function gameRef(gameId) {
     return (state && typeof state.gameRef === 'function')
@@ -102,7 +102,12 @@ module.exports = function makeEventsWriter({ db, admin, state }) {
     return { ok: true, appended: arr.length, fromSeq, toSeq, nextSeq: seq };
   }
 
+  async function appendEvents({ gameId = 'lockdown2030', events } = {}) {
+    return run('appendEvents', (tx) => appendEventsTx(tx, { gameId, events }));
+  }
+
   return {
     appendEventsTx,
+    appendEvents,
   };
 };

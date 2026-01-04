@@ -9,6 +9,8 @@
 
 const { makeEquipmentService } = require('./equipment-service');
 const { planMove } = require('./move-rules');
+const { planSearch } = require('./search-rules');
+const { resolveSearchOutcome } = require('./search-outcome');
 
 const { makeDoorService } = require('./door-service');
 const { makeDoorHandlers } = require('./handlers/door-handlers');
@@ -226,25 +228,47 @@ function makeEngine({ reader, writer }) {
     const actor = await reader.getActor(gameId, uid);
     if (!actor) throw new Error(`${TAG}: actor_not_found`);
 
+    if (actor.isPlayer !== true) throw new Error(`${TAG}: players_only`);
+
     const pos = requirePos(actor, TAG);
     if (pos.layer !== 1) throw new Error(`${TAG}: not_inside`);
 
-    const apCost = 1;
+    const cellId = `c_${pos.x}_${pos.y}_${pos.z}_${pos.layer}`;
+    const cell = await reader.getCell(gameId, cellId);
+    if (!cell) throw new Error(`${TAG}: cell_missing`);
 
-    // SEARCH is player/AP-gated in V1 searchSpot writer contracts.
-    if (actor.isPlayer !== true) throw new Error(`${TAG}: players_only`);
+    const planned = planSearch({ actor, cell });
+    if (!planned.ok) throw new Error(`${TAG}: ${planned.reason || 'invalid'}`);
 
     const curAp = Number.isFinite(actor.currentAp) ? Math.trunc(actor.currentAp) : 0;
-    if (curAp < apCost) throw new Error(`${TAG}: not_enough_ap`);
-
-    const cellId = `c_${pos.x}_${pos.y}_${pos.z}_${pos.layer}`;
+    if (curAp < planned.apCost) throw new Error(`${TAG}: not_enough_ap`);
 
     const result = await writer.searchCell({
       gameId,
       uid,
       cellId,
-      apCost,
+      apCost: planned.apCost,
     });
+
+    if (typeof writer.spawnItemAtCell !== 'function') {
+      throw new Error('search: spawnItemAtCell_unavailable');
+    }
+
+    const outcome = await resolveSearchOutcome({
+      planned,
+      buildingType: planned.buildingType,
+      searchResult: result,
+      actorId: uid,
+      pos: result.pos,
+      spawnItemAtCell: async (kind) => writer.spawnItemAtCell({ gameId, cellId, kind }),
+    });
+
+    if (outcome.events.length) {
+      if (typeof writer.appendEvents !== 'function') {
+        throw new Error('search: appendEvents_unavailable');
+      }
+      await writer.appendEvents({ gameId, events: outcome.events });
+    }
 
     return {
       ok: true,
@@ -254,6 +278,9 @@ function makeEngine({ reader, writer }) {
       currentAp: result.currentAp,
       remaining: result.remaining,
       maxRemaining: result.maxRemaining,
+      loot: outcome.loot,
+      failureReason: outcome.failureReason,
+      buildingType: outcome.buildingType,
     };
   }
 
