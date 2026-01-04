@@ -31,7 +31,7 @@ function makePlayerTicker({ reader, writer }) {
   const apRegen = Number.isFinite(Number(TICK?.PLAYER?.AP_REGEN_PER_TICK)) ? Number(TICK.PLAYER.AP_REGEN_PER_TICK) : 1;
   const hpRegen = Number.isFinite(Number(TICK?.PLAYER?.HP_REGEN_PER_TICK)) ? Number(TICK.PLAYER.HP_REGEN_PER_TICK) : 2;
 
-  const maxAp = Number.isFinite(PLAYER.MAX_AP) ? Number(PLAYER.MAX_AP) : 3;
+  const defaultMaxAp = Number.isFinite(PLAYER.MAX_AP) ? Number(PLAYER.MAX_AP) : 3;
   const maxHp = Number.isFinite(PLAYER.MAX_HP) ? Number(PLAYER.MAX_HP) : 100;
 
   const DRAIN_EVERY = Number.isFinite(Number(TICK?.METERS?.DRAIN_EVERY_TICKS)) ? Number(TICK.METERS.DRAIN_EVERY_TICKS) : 72;
@@ -62,10 +62,12 @@ function makePlayerTicker({ reader, writer }) {
 
       const patch = {};
 
-      // --- AP regen (cap 3)
+      // --- AP regen (cap player.maxAp from doc)
       const curAp = Number.isFinite(data.currentAp) ? Number(data.currentAp) : Number(PLAYER.START_AP ?? 0);
-      if (apRegen > 0 && curAp < maxAp) {
-        const nextAp = Math.min(maxAp, curAp + apRegen);
+      const playerMaxAp = Number.isFinite(data.maxAp) ? Number(data.maxAp) : defaultMaxAp;
+      const effectiveMaxAp = Number.isFinite(playerMaxAp) && playerMaxAp > 0 ? playerMaxAp : defaultMaxAp;
+      if (apRegen > 0 && curAp < effectiveMaxAp) {
+        const nextAp = Math.min(effectiveMaxAp, curAp + apRegen);
         if (nextAp !== curAp) patch.currentAp = nextAp;
       }
 
