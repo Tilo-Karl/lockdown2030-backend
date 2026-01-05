@@ -3,17 +3,16 @@
 // IMPORTANT (LOCKED):
 // - isDestroyed is truth for “gone/open”
 // - NO isBroken anywhere
-// - passable iff isOpen===true OR destroyed (hp<=0)
+// - passable iff isOpen===true OR destroyed (structureHp<=0)
 
 const { DOOR } = require('../config/config-doors');
+const { makeDoorService } = require('../engine/door-service');
+
+const doorService = makeDoorService();
 
 function nInt(x, fallback = 0) {
   const v = Number(x);
   return Number.isFinite(v) ? Math.trunc(v) : fallback;
-}
-
-function clamp(n, min, max) {
-  return Math.min(Math.max(n, min), max);
 }
 
 function endpointKey(p) {
@@ -65,84 +64,12 @@ function doorEndpointsForTile(x, y) {
   };
 }
 
-function computeDoorHp(d) {
-  const maxLvl = nInt(DOOR.MAX_BARRICADE_LEVEL, 5);
-  const lvl = clamp(nInt(d?.barricadeLevel, 0), 0, maxLvl);
-  const base = nInt(DOOR.BASE_HP, 10);
-  const secure = d?.isSecured === true ? nInt(DOOR.SECURE_HP_BONUS, 5) : 0;
-  const per = nInt(DOOR.HP_PER_LEVEL, 10);
-  return Math.max(0, base + secure + (lvl * per));
-}
-
-function isDestroyedDoor(d) {
-  const hp = Number.isFinite(d?.hp) ? Number(d.hp) : null;
-  return d?.isDestroyed === true || (hp != null && hp <= 0);
-}
-
 function mergeDoorEdge(x, y, raw) {
-  const base = {
-    edgeId: doorEdgeIdForTile(x, y),
-    kind: 'door',
-    x,
-    y,
-
-    a: outsideEndpoint(x, y),
-    b: insideEndpoint(x, y),
-
-    isOpen: false,
-    isSecured: false,
-    barricadeLevel: 0,
-
-    isDestroyed: false,
-
-    hp: null,
-  };
-
-  const d = (raw && typeof raw === 'object') ? { ...base, ...raw } : { ...base };
-
-  d.kind = 'door';
-
-  d.a = normEndpoint((d.a && typeof d.a === 'object') ? d.a : base.a);
-  d.b = normEndpoint((d.b && typeof d.b === 'object') ? d.b : base.b);
-  d.edgeId = edgeIdFor(d.a, d.b);
-
-  d.x = nInt(d.x, x);
-  d.y = nInt(d.y, y);
-
-  d.isOpen = d.isOpen === true;
-  d.isSecured = d.isSecured === true;
-  d.barricadeLevel = clamp(nInt(d.barricadeLevel, 0), 0, nInt(DOOR.MAX_BARRICADE_LEVEL, 5));
-  d.isDestroyed = d.isDestroyed === true;
-
-  if (isDestroyedDoor(d)) {
-    d.isDestroyed = true;
-    d.isOpen = true;
-    d.isSecured = false;
-    d.barricadeLevel = 0;
-    d.hp = 0;
-    return d;
-  }
-
-  const maxHp = computeDoorHp(d);
-  const curHp = Number.isFinite(d.hp) ? nInt(d.hp, maxHp) : maxHp;
-  d.hp = clamp(curHp, 0, maxHp);
-
-  if (d.hp <= 0) {
-    d.isDestroyed = true;
-    d.isOpen = true;
-    d.isSecured = false;
-    d.barricadeLevel = 0;
-    d.hp = 0;
-  }
-
-  return d;
+  return doorService.normalizeDoor(x, y, raw);
 }
 
 function isDoorBlockingZombie(d) {
-  if (!d) return false;
-  if (d.isOpen === true) return false;
-  if (isDestroyedDoor(d)) return false;
-  return true; // closed + hp>0 blocks
+  return !doorService.isDoorPassable(d);
 }
 
 function doorDamageFromCfg(cfg) {
@@ -158,6 +85,5 @@ module.exports = {
   doorEndpointsForTile,
   mergeDoorEdge,
   isDoorBlockingZombie,
-  computeDoorHp,
   doorDamageFromCfg,
 };

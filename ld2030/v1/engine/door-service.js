@@ -2,9 +2,11 @@
 // Door rules + normalization helpers.
 //
 // MASTER PLAN SEMANTICS (LOCKED):
-// - isDestroyed: truth for “door is gone / does not block / must be open”
-// - door is passable ONLY if isOpen === true OR isDestroyed === true OR hp <= 0
-// - NO isBroken persisted; integrity labels are derived from hp/maxHp at UI layer
+// - Doors have distinct structure vs barricade durability.
+// - isDestroyed reflects structureHp === 0.
+// - Barricades cannot exist on destroyed doors and must be cleared before structure takes damage.
+// - door is passable ONLY if isOpen === true OR structureHp === 0.
+// - NO isBroken persisted; integrity labels are derived from stored maxHp values at UI layer.
 //
 // STORAGE:
 // - Doors are edges/* documents (kind: 'door').
@@ -64,6 +66,17 @@ function insideEndpoint(x, y) {
   return { x, y, z: 0, layer: 1 };
 }
 
+const STRUCTURE_BASE_HP = Math.max(0, nInt(DOOR.BASE_HP, 10));
+const STRUCTURE_MAX_HP = STRUCTURE_BASE_HP;
+const MAX_BARRICADE_LEVEL = Math.max(0, nInt(DOOR.MAX_BARRICADE_LEVEL, 5));
+const BARRICADE_HP_PER_LEVEL = Math.max(0, nInt(DOOR.HP_PER_LEVEL, 10));
+
+function barricadeMaxForLevel(level) {
+  const lvl = clamp(nInt(level, 0), 0, MAX_BARRICADE_LEVEL);
+  if (lvl <= 0) return 0;
+  return Math.max(0, lvl * BARRICADE_HP_PER_LEVEL);
+}
+
 function makeDoorService({ reader } = {}) {
   function doorEdgeIdForTile(x, y) {
     return edgeIdFor(outsideEndpoint(x, y), insideEndpoint(x, y));
@@ -88,29 +101,15 @@ function makeDoorService({ reader } = {}) {
 
       isOpen: false,
       isSecured: false,
-      barricadeLevel: 0,
-
       isDestroyed: false,
 
-      // hp=null => initialize to computed maxHp (based on secured+level)
-      // hp=0 => destroyed truth
-      hp: null,
+      structureHp: STRUCTURE_MAX_HP,
+      structureMaxHp: STRUCTURE_MAX_HP,
+
+      barricadeLevel: 0,
+      barricadeHp: 0,
+      barricadeMaxHp: 0,
     };
-  }
-
-  function computeDoorHp(d) {
-    if (!d) return 0;
-
-    const destroyed = d.isDestroyed === true || (Number.isFinite(d.hp) && Number(d.hp) <= 0);
-    if (destroyed) return 0;
-
-    const lvl = clamp(nInt(d.barricadeLevel, 0), 0, nInt(DOOR.MAX_BARRICADE_LEVEL, 5));
-
-    const base = nInt(DOOR.BASE_HP, 10);
-    const secure = d.isSecured === true ? nInt(DOOR.SECURE_HP_BONUS, 5) : 0;
-    const per = nInt(DOOR.HP_PER_LEVEL, 10);
-
-    return Math.max(0, base + secure + (lvl * per));
   }
 
   function normalizeDoor(x, y, edge) {
@@ -136,30 +135,51 @@ function makeDoorService({ reader } = {}) {
     d.isOpen = nBool(d.isOpen);
     d.isSecured = nBool(d.isSecured);
 
-    d.barricadeLevel = clamp(nInt(d.barricadeLevel, 0), 0, nInt(DOOR.MAX_BARRICADE_LEVEL, 5));
     d.isDestroyed = nBool(d.isDestroyed);
 
-    const destroyed = d.isDestroyed === true || (Number.isFinite(d.hp) && Number(d.hp) <= 0);
+    d.structureMaxHp = Number.isFinite(d.structureMaxHp)
+      ? Math.max(0, Number(d.structureMaxHp))
+      : STRUCTURE_MAX_HP;
+    if (d.structureMaxHp <= 0) d.structureMaxHp = STRUCTURE_MAX_HP;
 
-    if (destroyed) {
+    if (!Number.isFinite(d.structureHp)) d.structureHp = d.structureMaxHp;
+    d.structureHp = clamp(Number(d.structureHp), 0, d.structureMaxHp);
+
+    if (d.structureHp <= 0) {
       d.isDestroyed = true;
+      d.structureHp = 0;
+    } else {
+      d.isDestroyed = false;
+    }
+
+    d.barricadeLevel = clamp(nInt(d.barricadeLevel, 0), 0, MAX_BARRICADE_LEVEL);
+
+    if (d.isDestroyed) {
       d.isOpen = true;
       d.isSecured = false;
       d.barricadeLevel = 0;
-      d.hp = 0;
+      d.barricadeHp = 0;
+      d.barricadeMaxHp = 0;
       return d;
     }
 
-    const maxHp = computeDoorHp({ ...d, hp: 999999 });
-    const curHp = Number.isFinite(d.hp) ? nInt(d.hp, maxHp) : maxHp;
-    d.hp = clamp(curHp, 0, maxHp);
-
-    if (d.hp <= 0) {
-      d.isDestroyed = true;
-      d.isOpen = true;
-      d.isSecured = false;
+    if (d.barricadeLevel <= 0) {
       d.barricadeLevel = 0;
-      d.hp = 0;
+      d.barricadeHp = 0;
+      d.barricadeMaxHp = 0;
+    } else {
+      d.barricadeMaxHp = Number.isFinite(d.barricadeMaxHp)
+        ? Math.max(0, Number(d.barricadeMaxHp))
+        : barricadeMaxForLevel(d.barricadeLevel);
+      if (d.barricadeMaxHp <= 0) d.barricadeMaxHp = barricadeMaxForLevel(d.barricadeLevel);
+      d.barricadeHp = Number.isFinite(d.barricadeHp)
+        ? clamp(Number(d.barricadeHp), 0, d.barricadeMaxHp)
+        : d.barricadeMaxHp;
+      if (d.barricadeHp <= 0) {
+        d.barricadeLevel = 0;
+        d.barricadeHp = 0;
+        d.barricadeMaxHp = 0;
+      }
     }
 
     return d;
@@ -177,7 +197,7 @@ function makeDoorService({ reader } = {}) {
 
   function isDoorPassable(d) {
     if (!d) return true; // missing edge => passable
-    const destroyed = d.isDestroyed === true || (Number.isFinite(d.hp) && Number(d.hp) <= 0);
+    const destroyed = d.isDestroyed === true || nInt(d.structureHp, 0) <= 0;
     return d.isOpen === true || destroyed;
   }
 
@@ -191,8 +211,7 @@ function makeDoorService({ reader } = {}) {
     if (d.isOpen === true) throw new Error('SECURE_DOOR: must_be_closed');
 
     const next = { ...d, isSecured: true, isOpen: false };
-    const maxHp = computeDoorHp(next);
-    next.hp = clamp(nInt(next.hp, maxHp), 0, maxHp);
+    next.structureHp = clamp(Number(next.structureHp), 0, Number(next.structureMaxHp));
     return next;
   }
 
@@ -201,9 +220,10 @@ function makeDoorService({ reader } = {}) {
     if (d.isDestroyed === true) throw new Error('BARRICADE_DOOR: door_destroyed');
     if (d.isOpen === true) throw new Error('BARRICADE_DOOR: must_be_closed');
 
-    const maxLvl = nInt(DOOR.MAX_BARRICADE_LEVEL, 5);
+    const maxLvl = MAX_BARRICADE_LEVEL;
     const curLvl = nInt(d.barricadeLevel, 0);
     if (curLvl >= maxLvl) throw new Error('BARRICADE_DOOR: max_level');
+    if (d.structureHp < d.structureMaxHp) throw new Error('BARRICADE_DOOR: door_damaged');
 
     const next = {
       ...d,
@@ -212,8 +232,8 @@ function makeDoorService({ reader } = {}) {
       barricadeLevel: curLvl + 1,
     };
 
-    const maxHp = computeDoorHp(next);
-    next.hp = maxHp;
+    next.barricadeMaxHp = barricadeMaxForLevel(next.barricadeLevel);
+    next.barricadeHp = next.barricadeMaxHp;
     return next;
   }
 
@@ -226,15 +246,21 @@ function makeDoorService({ reader } = {}) {
     if (curLvl > 0) {
       const nextLvl = Math.max(0, curLvl - 1);
       const next = { ...d, isOpen: false, barricadeLevel: nextLvl, isSecured: true };
-      const maxHp = computeDoorHp(next);
-      next.hp = maxHp;
+      if (nextLvl <= 0) {
+        next.barricadeLevel = 0;
+        next.barricadeHp = 0;
+        next.barricadeMaxHp = 0;
+      } else {
+        next.barricadeMaxHp = barricadeMaxForLevel(nextLvl);
+        next.barricadeHp = next.barricadeMaxHp;
+      }
       return next;
     }
 
     if (d.isSecured === true) {
       const next = { ...d, isOpen: false, isSecured: false, barricadeLevel: 0 };
-      const maxHp = computeDoorHp(next);
-      next.hp = clamp(nInt(next.hp, maxHp), 0, maxHp);
+      next.barricadeHp = 0;
+      next.barricadeMaxHp = 0;
       return next;
     }
 
@@ -243,7 +269,7 @@ function makeDoorService({ reader } = {}) {
 
   function applyRepair(d) {
     if (!d) throw new Error('REPAIR_DOOR: missing_door');
-    const destroyed = d.isDestroyed === true || (Number.isFinite(d.hp) && Number(d.hp) <= 0);
+    const destroyed = d.isDestroyed === true || nInt(d.structureHp, 0) <= 0;
     if (!destroyed) throw new Error('REPAIR_DOOR: not_destroyed');
 
     const next = {
@@ -254,8 +280,9 @@ function makeDoorService({ reader } = {}) {
       barricadeLevel: 0,
     };
 
-    const maxHp = computeDoorHp(next);
-    next.hp = maxHp;
+    next.structureHp = next.structureMaxHp;
+    next.barricadeHp = 0;
+    next.barricadeMaxHp = 0;
     return next;
   }
 
@@ -268,7 +295,6 @@ function makeDoorService({ reader } = {}) {
     doorDefaults,
     normalizeDoor,
     loadDoorOrDefault,
-    computeDoorHp,
     isDoorPassable,
     isEnterBlockedFromOutside,
     applySecure,

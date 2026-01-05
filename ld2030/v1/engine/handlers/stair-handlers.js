@@ -32,9 +32,11 @@ function makeStairHandlers({ reader, writer, stairService: stairServiceIn }) {
   }
 
   function decorateForResponse(e) {
-    const maxHp = stairService.maxHpForLevel(e.barricadeLevel);
-    const label = integrityLabel({ hp: e.hp, maxHp });
-    return { ...e, maxHp, integrity: label };
+    const maxHp = Number.isFinite(e.barricadeMaxHp)
+      ? Number(e.barricadeMaxHp)
+      : stairService.maxHpForLevel(e.barricadeLevel);
+    const label = integrityLabel({ hp: e.barricadeHp ?? 0, maxHp });
+    return { ...e, barricadeMaxHp: maxHp, barricadeIntegrity: label };
   }
 
   async function assertCellsExist(gameId, x, y, zA, zB, tag) {
@@ -58,8 +60,8 @@ function makeStairHandlers({ reader, writer, stairService: stairServiceIn }) {
       zLo: Number(edge.zLo),
       zHi: Number(edge.zHi),
       barricadeLevel: Number.isFinite(edge.barricadeLevel) ? Number(edge.barricadeLevel) : 0,
-      isDestroyed: edge.isDestroyed === true,
-      hp: Number.isFinite(edge.hp) ? Number(edge.hp) : 0,
+      barricadeHp: Number.isFinite(edge.barricadeHp) ? Math.max(0, Number(edge.barricadeHp)) : 0,
+      barricadeMaxHp: Number.isFinite(edge.barricadeMaxHp) ? Math.max(0, Number(edge.barricadeMaxHp)) : 0,
     };
 
     await writer.updateActorAndEdgeAtomic(gameId, uid, actorPatch, edge.edgeId, edgePatch);

@@ -100,23 +100,16 @@ Fields (runtime truth):
   - A: `{x,y,z,layer}`
   - B: `{x,y,z,layer}`
 - `kind`: `"door"` | `"stairs"`
-- `hp` (int) — **edge barrier HP (single pool)**
+- **Door durability fields**
+  - `structureHp` / `structureMaxHp` — physical door health (independent of barricades). Door is passable iff `isOpen === true` OR `structureHp === 0`.
+  - `barricadeLevel`, `barricadeHp`, `barricadeMaxHp` — barricade durability (only exists when level > 0).
+    - Barricade damage never touches structure until `barricadeHp` hits 0.
+    - Destroyed doors (structureHp === 0) must auto-clear barricade state.
 
-### Edge barrier HP semantics (LOCKED — single meaning)
-`edge.hp` means **HP of the blocking barrier on that edge**.
-
-- **Door edge (`kind="door"`):**
-  - `edge.hp` = **door barrier HP pool** (door itself + any added barricade, same pool).
-  - Door base HP (and any max HP used for UI/integrity math) is **derived** from config (`WORLD`), not stored as max/base fields.
-  - Door edges MUST be initialized with `hp = baseDoorHp` (derived) at init.
-  - Door is passable if `isOpen=true OR hp<=0`.
-
-- **Stairs edge (`kind="stairs"`):**
-  - `edge.hp` = **stairs barricade HP** (NOT the stairs).
-  - Stairs are not destructible; only the barricade is.
-  - Stairs edges MUST be initialized with `hp = 0` (no barricade installed) at init.
-  - `hp > 0` means barricade exists → stairs blocked.
-  - Barricading stairs increases `hp`; attacking it reduces `hp` back toward 0.
+- **Stairs durability fields**
+  - No structure HP. Only barricade fields exist: `barricadeLevel`, `barricadeHp`, `barricadeMaxHp`.
+  - `barricadeHp === 0` (or level 0) means passable stairs.
+  - Barricades can be added/removed per level; HP is clamped between 0..barricadeMaxHp.
 
 Door-only fields (runtime truth):
 - `isOpen` (bool)

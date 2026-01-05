@@ -8,6 +8,9 @@ const { apCostFor, ensureActorHasAp } = require('../../actions/ap-service');
 const { requirePos, cellIdFor } = require('../../actions/validators');
 const { makeDoorService } = require('../door-service');
 const { integrityLabel } = require('../integrity');
+const { DOOR } = require('../../config/config-doors');
+
+const STRUCTURE_FALLBACK_MAX = Math.max(0, Number(DOOR?.BASE_HP ?? 10));
 
 function makeDoorHandlers({ reader, writer, doorService: doorServiceIn }) {
   if (!reader) throw new Error('door-handlers: reader is required');
@@ -31,9 +34,11 @@ function makeDoorHandlers({ reader, writer, doorService: doorServiceIn }) {
   }
 
   function decorateDoorForResponse(d) {
-    const maxHp = doorService.computeDoorHp({ ...d, hp: 999999 });
-    const label = integrityLabel({ hp: d.hp, maxHp });
-    return { ...d, maxHp, integrity: label };
+    const structureMax = Number.isFinite(d.structureMaxHp) ? Number(d.structureMaxHp) : 0;
+    const barricadeMax = Number.isFinite(d.barricadeMaxHp) ? Number(d.barricadeMaxHp) : 0;
+    const structureIntegrity = integrityLabel({ hp: d.structureHp ?? 0, maxHp: structureMax });
+    const barricadeIntegrity = integrityLabel({ hp: d.barricadeHp ?? 0, maxHp: barricadeMax });
+    return { ...d, structureMaxHp: structureMax, barricadeMaxHp: barricadeMax, structureIntegrity, barricadeIntegrity };
   }
 
   async function persistDoorAtomic({ gameId, uid, actor, apCost, door }) {
@@ -58,9 +63,12 @@ function makeDoorHandlers({ reader, writer, doorService: doorServiceIn }) {
       insideCellId: String(door.insideCellId || defaults.insideCellId),
       isOpen: door.isOpen === true,
       isSecured: door.isSecured === true,
+      structureHp: Number.isFinite(door.structureHp) ? Math.max(0, Number(door.structureHp)) : 0,
+      structureMaxHp: Number.isFinite(door.structureMaxHp) ? Math.max(0, Number(door.structureMaxHp)) : STRUCTURE_FALLBACK_MAX,
       barricadeLevel: Number.isFinite(door.barricadeLevel) ? Number(door.barricadeLevel) : 0,
+      barricadeHp: Number.isFinite(door.barricadeHp) ? Math.max(0, Number(door.barricadeHp)) : 0,
+      barricadeMaxHp: Number.isFinite(door.barricadeMaxHp) ? Math.max(0, Number(door.barricadeMaxHp)) : 0,
       isDestroyed: door.isDestroyed === true,
-      hp: Number.isFinite(door.hp) ? Number(door.hp) : 0,
     };
 
     await writer.updateActorAndEdgeAtomic(gameId, uid, actorPatch, edgeId, edgePatch);

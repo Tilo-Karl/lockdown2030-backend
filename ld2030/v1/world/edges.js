@@ -3,10 +3,11 @@
 //
 // POLICY (locked):
 // - Runtime edges store mutable runtime truth only.
-// - Max/base values are derived from server config (not persisted as max/base fields).
-// - Doors + stairs both use ONE barrier pool: edge.hp.
-//   - Door edge.hp = door barrier HP pool (door itself + any added barricade).
-//   - Stairs edge.hp = stairs barricade HP (NOT the stairs).
+// - Max/base values are derived from server config during init.
+// - Doors store separate structure vs barricade durability.
+//   - structureHp/structureMaxHp track the physical door.
+//   - barricadeHp/barricadeMaxHp track barricade durability (level drives max).
+// - Stairs only store barricade durability (no structure HP).
 // - Doors/stairs use e_* ids.
 // - Doors cannot be secured while open (enforced by services; init sets safe defaults).
 
@@ -110,9 +111,16 @@ async function writeDoorEdges({ db, admin, edgesCol, mapMeta, baseDoorHp }) {
           // Door state (runtime truth)
           isOpen: false,
           isSecured: false,
+          isDestroyed: false,
 
-          // Single barrier pool (runtime truth)
-          hp: baseHp,
+          // Structure durability
+          structureHp: baseHp,
+          structureMaxHp: baseHp,
+
+          // Barricade durability
+          barricadeLevel: 0,
+          barricadeHp: 0,
+          barricadeMaxHp: 0,
 
           createdAt: serverTs(),
           updatedAt: serverTs(),
@@ -172,9 +180,10 @@ async function writeStairsEdges({ db, admin, edgesCol, mapMeta }) {
             zLo: z,
             zHi: z + 1,
 
-            // Single barrier pool for stairs barricade:
-            // hp==0 means "no barricade installed" (passable).
-            hp: 0,
+            // Barricade durability (stairs only have barricades)
+            barricadeLevel: 0,
+            barricadeHp: 0,
+            barricadeMaxHp: 0,
 
             createdAt: serverTs(),
             updatedAt: serverTs(),

@@ -2,8 +2,8 @@
 // Stair-edge barricade rules + normalization.
 //
 // MASTER PLAN SEMANTICS:
-// - isDestroyed: truth for “barricade is gone / does not block”
-// - destroyed => barricadeLevel=0 and hp=0
+// - Stairs have NO structure durability; only barricades exist.
+// - barricadeLevel=0 or barricadeHp=0 => passable.
 //
 // STORAGE:
 // - Stairs barricades are edges/* documents (kind: 'stairs').
@@ -16,10 +16,6 @@ const { STAIRS } = require('../config/config-stairs');
 function nInt(x, fallback = 0) {
   const v = Number(x);
   return Number.isFinite(v) ? Math.trunc(v) : fallback;
-}
-
-function nBool(x) {
-  return x === true;
 }
 
 function clamp(n, min, max) {
@@ -88,11 +84,8 @@ function makeStairService({ reader } = {}) {
       zHi,
 
       barricadeLevel: 0,
-      isDestroyed: false,
-
-      // hp is barricade hp (0 when no barricade / destroyed)
-      // hp can be null from init => treat as “initialize” only when barricaded
-      hp: 0,
+      barricadeHp: 0,
+      barricadeMaxHp: 0,
     };
   }
 
@@ -134,34 +127,27 @@ function makeStairService({ reader } = {}) {
       nInt(STAIRS.MAX_BARRICADE_LEVEL, 5)
     );
 
-    e.isDestroyed = nBool(e.isDestroyed);
-
-    // No barricade => unblocked, hp must be 0 (ignore hp=null from init)
+    // No barricade => unblocked
     if (e.barricadeLevel <= 0) {
       e.barricadeLevel = 0;
-      e.hp = 0;
+      e.barricadeHp = 0;
+      e.barricadeMaxHp = 0;
       return e;
     }
 
-    // Explicit destroyed => clear barricade
-    if (e.isDestroyed === true) {
-      e.barricadeLevel = 0;
-      e.hp = 0;
-      return e;
-    }
-
-    // Barricade exists: normalize hp (hp null => initialize to max for that level)
+    // Barricade exists: normalize hp/max (hp null => initialize)
     const maxHp = maxHpForLevel(e.barricadeLevel);
-    const curHp =
-      (e.hp == null) ? maxHp : (Number.isFinite(e.hp) ? nInt(e.hp, maxHp) : maxHp);
+    const curHp = (e.barricadeHp == null)
+      ? maxHp
+      : (Number.isFinite(e.barricadeHp) ? nInt(e.barricadeHp, maxHp) : maxHp);
 
-    e.hp = clamp(curHp, 0, maxHp);
+    e.barricadeMaxHp = maxHp;
+    e.barricadeHp = clamp(curHp, 0, maxHp);
 
-    // hp 0 => destroyed truth
-    if (e.hp <= 0) {
-      e.isDestroyed = true;
+    if (e.barricadeHp <= 0) {
       e.barricadeLevel = 0;
-      e.hp = 0;
+      e.barricadeHp = 0;
+      e.barricadeMaxHp = 0;
     }
 
     return e;
@@ -179,8 +165,7 @@ function makeStairService({ reader } = {}) {
 
   function isBlocked(e) {
     if (!e) return false;
-    if (e.isDestroyed === true) return false;
-    return nInt(e.barricadeLevel, 0) > 0;
+    return nInt(e.barricadeLevel, 0) > 0 && nInt(e.barricadeHp, 0) > 0;
   }
 
   function applyBarricade(e) {
@@ -194,9 +179,9 @@ function makeStairService({ reader } = {}) {
 
     return {
       ...e,
-      isDestroyed: false,
       barricadeLevel: nextLvl,
-      hp: maxHpForLevel(nextLvl),
+      barricadeHp: maxHpForLevel(nextLvl),
+      barricadeMaxHp: maxHpForLevel(nextLvl),
     };
   }
 
@@ -209,16 +194,11 @@ function makeStairService({ reader } = {}) {
     const nextLvl = Math.max(0, curLvl - 1);
 
     if (nextLvl <= 0) {
-      // manual removal => not "destroyed"
-      return { ...e, barricadeLevel: 0, hp: 0, isDestroyed: false };
+      return { ...e, barricadeLevel: 0, barricadeHp: 0, barricadeMaxHp: 0 };
     }
 
-    return {
-      ...e,
-      isDestroyed: false,
-      barricadeLevel: nextLvl,
-      hp: maxHpForLevel(nextLvl),
-    };
+    const maxHp = maxHpForLevel(nextLvl);
+    return { ...e, barricadeLevel: nextLvl, barricadeHp: maxHp, barricadeMaxHp: maxHp };
   }
 
   function applyDamage(e, dmg) {
@@ -228,16 +208,16 @@ function makeStairService({ reader } = {}) {
     if (damage <= 0) return { ...e };
 
     const lvl = nInt(e.barricadeLevel, 0);
-    if (lvl <= 0) return { ...e, barricadeLevel: 0, hp: 0 };
+    if (lvl <= 0) return { ...e, barricadeLevel: 0, barricadeHp: 0, barricadeMaxHp: 0 };
 
-    const curHp = nInt(e.hp, maxHpForLevel(lvl));
+    const curHp = nInt(e.barricadeHp, maxHpForLevel(lvl));
     const nextHp = Math.max(0, curHp - damage);
 
     if (nextHp <= 0) {
-      return { ...e, hp: 0, isDestroyed: true, barricadeLevel: 0 };
+      return { ...e, barricadeHp: 0, barricadeLevel: 0, barricadeMaxHp: 0 };
     }
 
-    return { ...e, hp: nextHp, isDestroyed: false };
+    return { ...e, barricadeHp: nextHp, barricadeMaxHp: maxHpForLevel(lvl) };
   }
 
   return {

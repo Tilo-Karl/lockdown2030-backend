@@ -62,7 +62,7 @@ const REPAIR = {
 
 function canRepairDoor(edge) {
   if (!edge || edge.kind !== 'door') return false;
-  const destroyed = edge.isDestroyed === true || (Number.isFinite(edge.hp) && Number(edge.hp) <= 0);
+  const destroyed = edge.isDestroyed === true || (Number.isFinite(edge.structureHp) && Number(edge.structureHp) <= 0);
   return destroyed;
 }
 

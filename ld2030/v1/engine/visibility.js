@@ -4,16 +4,26 @@
 
 const { integrityLabel } = require('./integrity');
 
-function decorateDoor({ doorService, door }) {
-  if (!doorService || !door) return door;
-  const maxHp = doorService.computeDoorHp({ ...door, hp: 999999 });
-  return { ...door, maxHp, integrity: integrityLabel({ hp: door.hp, maxHp }) };
+function decorateDoor({ door }) {
+  if (!door) return door;
+  const structureMax = Number.isFinite(door.structureMaxHp) ? Number(door.structureMaxHp) : 0;
+  const structureIntegrity = integrityLabel({ hp: door.structureHp ?? 0, maxHp: structureMax });
+  const barricadeMax = Number.isFinite(door.barricadeMaxHp) ? Number(door.barricadeMaxHp) : 0;
+  const barricadeIntegrity = integrityLabel({ hp: door.barricadeHp ?? 0, maxHp: barricadeMax });
+  return {
+    ...door,
+    structureMaxHp: structureMax,
+    barricadeMaxHp: barricadeMax,
+    structureIntegrity,
+    barricadeIntegrity,
+  };
 }
 
-function decorateStairs({ stairService, edge }) {
-  if (!stairService || !edge) return edge;
-  const maxHp = stairService.maxHpForLevel(edge.barricadeLevel);
-  return { ...edge, maxHp, integrity: integrityLabel({ hp: edge.hp, maxHp }) };
+function decorateStairs({ edge }) {
+  if (!edge) return edge;
+  const barricadeMax = Number.isFinite(edge.barricadeMaxHp) ? Number(edge.barricadeMaxHp) : 0;
+  const barricadeIntegrity = integrityLabel({ hp: edge.barricadeHp ?? 0, maxHp: barricadeMax });
+  return { ...edge, barricadeMaxHp: barricadeMax, barricadeIntegrity };
 }
 
 module.exports = {

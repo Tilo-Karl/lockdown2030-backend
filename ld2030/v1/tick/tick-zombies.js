@@ -4,7 +4,7 @@
 // MASTER PLAN SEMANTICS:
 // - isDestroyed = truth for “gone/unblocked”
 // - NO isBroken anywhere
-// - door passable iff isOpen===true OR destroyed (hp<=0)
+// - door passable iff isOpen===true OR structureHp===0
 // - actor.pos is ALWAYS { x, y, z, layer } where layer ∈ {0,1} (NO isInsideBuilding truth)
 
 const { TICK } = require('../config');
@@ -19,7 +19,6 @@ const {
   doorEndpointsForTile,
   mergeDoorEdge,
   isDoorBlockingZombie,
-  computeDoorHp,
   doorDamageFromCfg,
 } = require('./zombie-doors');
 
@@ -28,7 +27,6 @@ const {
   stairsEndpointsFor,
   mergeStairsEdge,
   isStairsBlockingZombie,
-  computeStairsHp,
   stairsDamageFromCfg,
 } = require('./zombie-stairs');
 
@@ -79,6 +77,76 @@ function makeZombieTicker({ reader, writer }) {
   function clampLayer(x) {
     const v = nInt(x, 0);
     return (v === 1) ? 1 : 0;
+  }
+
+  function applyDoorDamageState(door, rawDamage) {
+    let remaining = Math.max(0, Number(rawDamage) || 0);
+    if (!door || remaining <= 0) {
+      return { door, doorDestroyed: false, barricadeDestroyed: false };
+    }
+
+    const next = { ...door };
+    let barricadeDestroyed = false;
+
+    if (nInt(next.barricadeLevel, 0) > 0 && Number(next.barricadeHp ?? 0) > 0) {
+      const currentBarricadeHp = Math.max(0, Number(next.barricadeHp));
+      const nextBarricadeHp = Math.max(0, currentBarricadeHp - remaining);
+      remaining = Math.max(0, remaining - currentBarricadeHp);
+      if (nextBarricadeHp <= 0) {
+        barricadeDestroyed = currentBarricadeHp > 0;
+        next.barricadeLevel = 0;
+        next.barricadeHp = 0;
+        next.barricadeMaxHp = 0;
+      } else {
+        next.barricadeHp = nextBarricadeHp;
+        remaining = 0;
+      }
+    }
+
+    let doorDestroyed = false;
+    if (remaining > 0) {
+      const currentStructureHp = Math.max(0, Number(next.structureHp ?? 0));
+      const nextStructureHp = Math.max(0, currentStructureHp - remaining);
+      next.structureHp = nextStructureHp;
+      if (nextStructureHp <= 0) {
+        doorDestroyed = currentStructureHp > 0;
+        next.structureHp = 0;
+        next.isDestroyed = true;
+        next.isOpen = true;
+        next.isSecured = false;
+        next.barricadeLevel = 0;
+        next.barricadeHp = 0;
+        next.barricadeMaxHp = 0;
+      }
+    }
+
+    return { door: next, doorDestroyed, barricadeDestroyed };
+  }
+
+  function applyStairsDamageState(edge, rawDamage) {
+    const damage = Math.max(0, Number(rawDamage) || 0);
+    if (!edge || damage <= 0) return { edge, barricadeDestroyed: false };
+
+    const next = { ...edge };
+
+    if (nInt(next.barricadeLevel, 0) <= 0 || Number(next.barricadeHp ?? 0) <= 0) {
+      next.barricadeLevel = 0;
+      next.barricadeHp = 0;
+      next.barricadeMaxHp = 0;
+      return { edge: next, barricadeDestroyed: false };
+    }
+
+    const currentHp = Math.max(0, Number(next.barricadeHp));
+    const nextHp = Math.max(0, currentHp - damage);
+    if (nextHp <= 0) {
+      next.barricadeLevel = 0;
+      next.barricadeHp = 0;
+      next.barricadeMaxHp = 0;
+      return { edge: next, barricadeDestroyed: true };
+    }
+
+    next.barricadeHp = nextHp;
+    return { edge: next, barricadeDestroyed: false };
   }
 
   async function buildPlayersByPos({ gameId, width, height }) {
@@ -220,43 +288,29 @@ function makeZombieTicker({ reader, writer }) {
             if (isDoorBlockingZombie(d)) {
               doorsHit += 1;
 
-              const curHp = Number.isFinite(d.hp) ? Number(d.hp) : computeDoorHp(d);
               const raw = doorDamageFromCfg(cfg);
-
               const dmg = combat.computeDamage({ rawDamage: raw, armor: 0 });
-              const applied = combat.applyDamageToItem({
-                durability: curHp,
-                damage: dmg,
-                destructible: true,
-              });
+              const { door: nextDoor, doorDestroyed } = applyDoorDamageState(d, dmg);
 
-              const nextHp = Math.max(0, Number(applied.nextDurability ?? 0));
+              const doorPatch = {
+                ...doorEndpointsForTile(nx, ny),
+                isOpen: nextDoor.isOpen === true,
+                isSecured: nextDoor.isSecured === true,
+                isDestroyed: nextDoor.isDestroyed === true,
+                structureHp: Math.max(0, Number(nextDoor.structureHp ?? 0)),
+                structureMaxHp: Math.max(0, Number(nextDoor.structureMaxHp ?? 0)),
+                barricadeLevel: Math.max(0, Number(nextDoor.barricadeLevel ?? 0)),
+                barricadeHp: Math.max(0, Number(nextDoor.barricadeHp ?? 0)),
+                barricadeMaxHp: Math.max(0, Number(nextDoor.barricadeMaxHp ?? 0)),
+              };
 
-              if (nextHp <= 0) {
+              await writer.updateDoor(gameId, doorEdgeId, doorPatch);
+
+              if (doorDestroyed) {
                 doorsDestroyed += 1;
-
-                await writer.updateDoor(gameId, doorEdgeId, {
-                  ...doorEndpointsForTile(nx, ny),
-
-                  hp: 0,
-                  isDestroyed: true,
-
-                  isOpen: true,
-                  isSecured: false,
-                  barricadeLevel: 0,
-                });
-
                 nextLayer = 1;
                 zombiesEntered += 1;
                 nz = 0;
-              } else {
-                await writer.updateDoor(gameId, doorEdgeId, {
-                  ...doorEndpointsForTile(nx, ny),
-
-                  hp: nextHp,
-                  isDestroyed: false,
-                  isOpen: false,
-                });
               }
             } else {
               nextLayer = 1;
@@ -299,37 +353,22 @@ function makeZombieTicker({ reader, writer }) {
                 if (isStairsBlockingZombie(s)) {
                   stairsHit += 1;
 
-                  const curHp = Number.isFinite(s.hp) ? Number(s.hp) : computeStairsHp(s);
                   const raw = stairsDamageFromCfg(cfg);
-
                   const dmg = combat.computeDamage({ rawDamage: raw, armor: 0 });
-                  const applied = combat.applyDamageToItem({
-                    durability: curHp,
-                    damage: dmg,
-                    destructible: true,
-                  });
+                  const { edge: nextEdge, barricadeDestroyed } = applyStairsDamageState(s, dmg);
 
-                  const nextHp = Math.max(0, Number(applied.nextDurability ?? 0));
+                  const stairPatch = {
+                    ...stairsEndpointsFor(nx, ny, edgeZ),
+                    barricadeLevel: Math.max(0, Number(nextEdge.barricadeLevel ?? 0)),
+                    barricadeHp: Math.max(0, Number(nextEdge.barricadeHp ?? 0)),
+                    barricadeMaxHp: Math.max(0, Number(nextEdge.barricadeMaxHp ?? 0)),
+                  };
 
-                  if (nextHp <= 0) {
+                  await writer.updateStairEdge(gameId, stairsEdgeId, stairPatch);
+
+                  if (barricadeDestroyed) {
                     stairsDestroyed += 1;
-
-                    await writer.updateStairEdge(gameId, stairsEdgeId, {
-                      ...stairsEndpointsFor(nx, ny, edgeZ),
-
-                      hp: 0,
-                      isDestroyed: true,
-                      barricadeLevel: 0,
-                    });
-
                     nz = targetZ;
-                  } else {
-                    await writer.updateStairEdge(gameId, stairsEdgeId, {
-                      ...stairsEndpointsFor(nx, ny, edgeZ),
-
-                      hp: nextHp,
-                      isDestroyed: false,
-                    });
                   }
                 } else {
                   nz = targetZ;

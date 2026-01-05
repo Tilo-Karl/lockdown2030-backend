@@ -313,6 +313,10 @@ async function writeInsideCells({ db, admin, cellsCol, mapMeta }) {
             z,
             layer: 1,
 
+            terrain: 'INSIDE',
+            blocksMove: false,
+            moveCost: 1,
+
             // Keep existing fields (used elsewhere)
             type,
             districtId,
