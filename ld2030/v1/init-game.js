@@ -148,12 +148,6 @@ module.exports = function registerInitGame(app, { db, admin, state, base }) {
         cellIdFor,
       });
 
-      console.log(
-        `[init-game] '${gameId}' initialized (${width}x${height}) mapId=${mapId} ` +
-        `cells(out=${outside.written}, in=${inside.written}) edges(door=${doors.written}, stairs=${stairs.written}) ` +
-        `districtState=${districts.written}`
-      );
-
       return res.json({
         ok: true,
         gameId,
