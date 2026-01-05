@@ -33,7 +33,7 @@ function validateStep(dx, dy, tag) {
   const sx = nIntStrict(dx, `${tag}: dx_invalid`);
   const sy = nIntStrict(dy, `${tag}: dy_invalid`);
   if (sx === 0 && sy === 0) throw new Error(`${tag}: zero_step`);
-  if (Math.abs(sx) + Math.abs(sy) !== 1) throw new Error(`${tag}: invalid_step`);
+  if (Math.abs(sx) > 1 || Math.abs(sy) > 1) throw new Error(`${tag}: invalid_step`);
   return { sx, sy };
 }
 
