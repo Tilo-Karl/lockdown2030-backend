@@ -85,7 +85,7 @@ function makeEngine({ reader, writer }) {
     const stepX = nIntStrict(dx, `${TAG}: dx_invalid`);
     const stepY = nIntStrict(dy, `${TAG}: dy_invalid`);
     if (stepX === 0 && stepY === 0) throw new Error(`${TAG}: zero_step`);
-    if (Math.abs(stepX) + Math.abs(stepY) !== 1) throw new Error(`${TAG}: invalid_step`);
+    if (Math.abs(stepX) > 1 || Math.abs(stepY) > 1) throw new Error(`${TAG}: invalid_step`);
 
     const gs = game.gridsize || {};
     const W = Number.isFinite(gs.w ?? game.w) ? nIntStrict(gs.w ?? game.w, `${TAG}: grid_w_invalid`) : 0;
