@@ -255,7 +255,8 @@ async function writeOutsideCells({ db, admin, cellsCol, w, h, mapMeta }) {
 
   if (ops > 0) await batch.commit();
   const stampEntries = Array.from(stampHistogram.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  console.log('[cells] outside building stamp histogram', { top10: stampEntries, totalStamped: Array.from(stampHistogram.values()).reduce((a, b) => a + b, 0), sample: stampSamples });
+  // STOP THE LOG SPAM
+  //console.log('[cells] outside building stamp histogram', { top10: stampEntries, totalStamped: Array.from(stampHistogram.values()).reduce((a, b) => a + b, 0), sample: stampSamples });
   return { written };
 }
 
