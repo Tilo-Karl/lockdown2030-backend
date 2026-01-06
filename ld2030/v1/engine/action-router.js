@@ -19,18 +19,6 @@ function makeActionRouter({ engine }) {
       case 'SEARCH':
         return engine.search(action);
 
-      case 'ENTER_BUILDING':
-        return engine.enterBuilding(action);
-
-      case 'STAIRS':
-        return engine.stairs(action);
-
-      case 'CLIMB_IN':
-        return engine.climbHandlers.handleClimbIn(action);
-
-      case 'CLIMB_OUT':
-        return engine.climbHandlers.handleClimbOut(action);
-
       case 'STAND_UP':
         return engine.standHandlers.handleStandUp(action);
 
@@ -75,8 +63,8 @@ function makeActionRouter({ engine }) {
   // DTO helpers (your HTTP route files call these)
   const run = (action) => processAction(action);
 
-  async function handleMove({ uid, gameId, dx, dy }) {
-    return run({ type: 'MOVE', uid, gameId, dx, dy });
+  async function handleMove({ uid, gameId, to }) {
+    return run({ type: 'MOVE', uid, gameId, to });
   }
 
   async function handleAttackEntity({ uid, gameId, targetId }) {
@@ -93,22 +81,6 @@ function makeActionRouter({ engine }) {
 
   async function handleSearch({ uid, gameId }) {
     return run({ type: 'SEARCH', uid, gameId });
-  }
-
-  async function handleEnterBuilding({ uid, gameId }) {
-    return run({ type: 'ENTER_BUILDING', uid, gameId });
-  }
-
-  async function handleStairs({ uid, gameId, dz }) {
-    return run({ type: 'STAIRS', uid, gameId, dz });
-  }
-
-  async function handleClimbIn({ uid, gameId }) {
-    return run({ type: 'CLIMB_IN', uid, gameId });
-  }
-
-  async function handleClimbOut({ uid, gameId }) {
-    return run({ type: 'CLIMB_OUT', uid, gameId });
   }
 
   async function handleStandUp({ uid, gameId }) {
@@ -156,10 +128,6 @@ function makeActionRouter({ engine }) {
     handleEquipItem,
     handleUnequipItem,
     handleSearch,
-    handleEnterBuilding,
-    handleStairs,
-    handleClimbIn,
-    handleClimbOut,
     handleStandUp,
 
     handleSecureDoor,

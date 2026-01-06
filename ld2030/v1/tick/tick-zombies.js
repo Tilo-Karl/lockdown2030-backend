@@ -48,9 +48,12 @@ function buildingKey(stamp) {
   return `${rx},${ry}`;
 }
 
-function makeZombieTicker({ reader, writer }) {
+function makeZombieTicker({ reader, writer, actions }) {
   if (!reader) throw new Error('zombie-ticker: reader is required');
   if (!writer) throw new Error('zombie-ticker: writer is required');
+  if (!actions || typeof actions.handleMove !== 'function') {
+    throw new Error('zombie-ticker: actions.handleMove is required');
+  }
   if (typeof reader.getGame !== 'function') throw new Error('zombie-ticker: reader.getGame is required');
   if (typeof reader.getEdge !== 'function') throw new Error('zombie-ticker: reader.getEdge is required');
 
@@ -389,11 +392,15 @@ function makeZombieTicker({ reader, writer }) {
         }
       }
 
-      if (nx !== x || ny !== y || nz !== z0 || nextLayer !== layer0) moved += 1;
-
-      await writer.updateZombie(gameId, doc.id, {
-        pos: { x: nx, y: ny, z: nz, layer: nextLayer },
-      });
+      const movedThisTick = (nx !== x || ny !== y || nz !== z0 || nextLayer !== layer0);
+      if (movedThisTick) {
+        moved += 1;
+        await actions.handleMove({
+          uid: doc.id,
+          gameId,
+          to: { x: nx, y: ny, z: nz, layer: nextLayer },
+        });
+      }
     }
 
     return {

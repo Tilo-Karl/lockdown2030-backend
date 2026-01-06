@@ -4,16 +4,11 @@
 const admin = require('firebase-admin');
 const makeState = require('../state');
 const makeChatWriter = require('../engine/state-writer-chat');
-const registerMovePlayer        = require('./move-player');
+const registerMove             = require('./move');
 const registerAttackEntity      = require('./attack-entity');
 const registerEquipItem         = require('./equip-item');
 const registerUnequipItem       = require('./unequip-item');
 const registerSearch            = require('./search');
-
-const registerEnterBuilding     = require('./enter-building');
-const registerStairs            = require('./stairs');
-const registerClimbIn           = require('./climb-in');
-const registerClimbOut          = require('./climb-out');
 
 const registerStandUp           = require('./stand-up');
 
@@ -58,19 +53,13 @@ module.exports = function registerActions(app, { actions, base, reader }) {
   registerChatDm(app, { reader, writer: chatWriterInstance, base });
 
   // Actions (mutations)
-  registerMovePlayer(app, { actions, base });
+  registerMove(app, { actions, base });
   registerAttackEntity(app, { actions, base });
 
   registerEquipItem(app, { actions, base });
   registerUnequipItem(app, { actions, base });
 
   registerSearch(app, { actions, base });
-
-  registerEnterBuilding(app, { actions, base });
-  registerStairs(app, { actions, base });
-
-  registerClimbIn(app, { actions, base });
-  registerClimbOut(app, { actions, base });
 
   registerStandUp(app, { actions, base });
 

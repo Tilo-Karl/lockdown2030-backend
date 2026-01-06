@@ -10,14 +10,15 @@ function n(x, fallback = 0) {
   return (typeof x === 'number' && Number.isFinite(x)) ? x : fallback;
 }
 
-function makeTickEngine({ reader, writer }) {
+function makeTickEngine({ reader, writer, actions }) {
   if (!reader) throw new Error('tick-engine: reader is required');
   if (!writer) throw new Error('tick-engine: writer is required');
+  if (!actions || typeof actions.handleMove !== 'function') throw new Error('tick-engine: actions.handleMove is required');
   if (typeof reader.getGame !== 'function') throw new Error('tick-engine: reader.getGame is required');
   if (typeof writer.writeGameMeta !== 'function') throw new Error('tick-engine: writer.writeGameMeta is required');
 
   const playerTicker = makePlayerTicker({ reader, writer });
-  const zombieTicker = makeZombieTicker({ reader, writer });
+  const zombieTicker = makeZombieTicker({ reader, writer, actions });
 
   async function tickGame({ gameId, now } = {}) {
     if (!gameId) throw new Error('tick-engine: gameId is required for tickGame');

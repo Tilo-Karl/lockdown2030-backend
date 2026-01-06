@@ -29,10 +29,6 @@ function nIntStrict(x, tag) {
   return Math.trunc(v);
 }
 
-function clamp(n, min, max) {
-  return Math.min(Math.max(n, min), max);
-}
-
 function cellId(x, y, z, layer) {
   return `c_${x}_${y}_${z}_${layer}`;
 }
@@ -48,6 +44,18 @@ function requirePos(actor, tag) {
 
   if (layer !== 0 && layer !== 1) throw new Error(`${tag}: pos_layer_invalid`);
 
+  return { x, y, z, layer };
+}
+
+function requireTarget(to, tag) {
+  if (!to || typeof to !== 'object') throw new Error(`${tag}: to_required`);
+
+  const x = nIntStrict(to.x, `${tag}: to_x_invalid`);
+  const y = nIntStrict(to.y, `${tag}: to_y_invalid`);
+  const z = nIntStrict(to.z, `${tag}: to_z_invalid`);
+  const layer = nIntStrict(to.layer, `${tag}: to_layer_invalid`);
+
+  if (layer !== 0 && layer !== 1) throw new Error(`${tag}: to_layer_invalid`);
   return { x, y, z, layer };
 }
 
@@ -70,9 +78,11 @@ function makeEngine({ reader, writer }) {
   // NEW: repair handlers (inside cells)
   const repairHandlers = makeRepairHandlers({ reader, writer });
 
-  async function move({ gameId = 'lockdown2030', uid, dx = 0, dy = 0 }) {
+  async function move({ gameId = 'lockdown2030', uid, to }) {
     const TAG = 'MOVE';
     if (!uid) throw new Error(`${TAG}: uid_required`);
+
+    const target = requireTarget(to, TAG);
 
     const game = await reader.getGame(gameId);
     if (!game) throw new Error(`${TAG}: game_not_found`);
@@ -81,49 +91,67 @@ function makeEngine({ reader, writer }) {
     if (!actor) throw new Error(`${TAG}: actor_not_found`);
 
     const pos = requirePos(actor, TAG);
-
-    const stepX = nIntStrict(dx, `${TAG}: dx_invalid`);
-    const stepY = nIntStrict(dy, `${TAG}: dy_invalid`);
-    if (stepX === 0 && stepY === 0) throw new Error(`${TAG}: zero_step`);
-    if (Math.abs(stepX) > 1 || Math.abs(stepY) > 1) throw new Error(`${TAG}: invalid_step`);
-
-    const gs = game.gridsize || {};
-    const W = Number.isFinite(gs.w ?? game.w) ? nIntStrict(gs.w ?? game.w, `${TAG}: grid_w_invalid`) : 0;
-    const H = Number.isFinite(gs.h ?? game.h) ? nIntStrict(gs.h ?? game.h, `${TAG}: grid_h_invalid`) : 0;
-    if (W <= 0 || H <= 0) throw new Error(`${TAG}: invalid_grid`);
-
-    const nextX = clamp(pos.x + stepX, 0, W - 1);
-    const nextY = clamp(pos.y + stepY, 0, H - 1);
-
-    const targetCellId = cellId(nextX, nextY, pos.z, pos.layer);
-    const targetCell = await reader.getCell(gameId, targetCellId);
-    if (!targetCell) throw new Error(`${TAG}: target_cell_missing`);
-
-    const planned = planMove({
-      game,
-      actor,
-      dx,
-      dy,
-      targetCell,
-    });
-
-    if (!planned.ok) {
-      throw new Error(`${TAG}: ${planned.reason || 'invalid_move'}`);
+    if (pos.x === target.x && pos.y === target.y && pos.z === target.z && pos.layer === target.layer) {
+      throw new Error(`${TAG}: zero_step`);
     }
 
-    const { pos: nextPos, apCost } = planned;
+    const samePlane = pos.layer === target.layer && pos.z === target.z;
+    if (samePlane) {
+      const dx = target.x - pos.x;
+      const dy = target.y - pos.y;
+      if (Math.abs(dx) > 1 || Math.abs(dy) > 1) throw new Error(`${TAG}: invalid_step`);
+      if (dx === 0 && dy === 0) throw new Error(`${TAG}: zero_step`);
 
-    if (actor.isPlayer === true) {
-      const curAp = Number.isFinite(actor.currentAp) ? Math.trunc(actor.currentAp) : 0;
-      if (curAp < apCost) throw new Error(`${TAG}: not_enough_ap`);
-      const nextAp = Math.max(0, curAp - apCost);
+      const targetCellId = cellId(target.x, target.y, target.z, target.layer);
+      const targetCell = await reader.getCell(gameId, targetCellId);
+      if (!targetCell) throw new Error(`${TAG}: target_cell_missing`);
 
-      await writer.updateActor(gameId, uid, { pos: nextPos, currentAp: nextAp });
-      return { ok: true, gameId, uid, pos: nextPos, apCost, currentAp: nextAp };
+      const planned = planMove({
+        game,
+        actor,
+        dx,
+        dy,
+        targetCell,
+      });
+
+      if (!planned.ok) throw new Error(`${TAG}: ${planned.reason || 'invalid_move'}`);
+
+      const { pos: nextPos, apCost } = planned;
+
+      if (actor.isPlayer === true) {
+        const curAp = Number.isFinite(actor.currentAp) ? Math.trunc(actor.currentAp) : 0;
+        if (curAp < apCost) throw new Error(`${TAG}: not_enough_ap`);
+        const nextAp = Math.max(0, curAp - apCost);
+
+        await writer.updateActor(gameId, uid, { pos: nextPos, currentAp: nextAp });
+        return { ok: true, gameId, uid, pos: nextPos, apCost, currentAp: nextAp };
+      }
+
+      await writer.updateActor(gameId, uid, { pos: nextPos });
+      return { ok: true, gameId, uid, pos: nextPos, apCost };
     }
 
-    await writer.updateActor(gameId, uid, { pos: nextPos });
-    return { ok: true, gameId, uid, pos: nextPos, apCost };
+    const sameXY = pos.x === target.x && pos.y === target.y;
+    if (pos.layer === 0 && target.layer === 1 && sameXY && pos.z === 0 && target.z === 0) {
+      try {
+        return await enterBuilding({ gameId, uid });
+      } catch (err) {
+        if (String(err?.message || '').includes('must_climb_in')) {
+          return climbHandlers.handleClimbIn({ gameId, uid });
+        }
+        throw err;
+      }
+    }
+
+    if (pos.layer === 1 && target.layer === 0 && sameXY && pos.z === 0 && target.z === 0) {
+      return climbHandlers.handleClimbOut({ gameId, uid });
+    }
+
+    if (pos.layer === 1 && target.layer === 1 && sameXY && Math.abs(target.z - pos.z) === 1) {
+      return stairs({ gameId, uid, dz: target.z - pos.z });
+    }
+
+    throw new Error(`${TAG}: unsupported_transition`);
   }
 
   async function enterBuilding({ gameId = 'lockdown2030', uid }) {
@@ -312,8 +340,6 @@ function makeEngine({ reader, writer }) {
     // Core action implementations (router dispatches to these)
     move,
     search,
-    enterBuilding,
-    stairs,
     attackEntity,
     equipItem,
     unequipItem,

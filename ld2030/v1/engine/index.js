@@ -14,8 +14,8 @@ function makeGameEngine({ db, admin, state }) {
   const writer = makeStateWriter({ db, admin, state, reader });
 
   const engine = makeEngine({ reader, writer });
-  const tickEngine = makeTickEngine({ reader, writer });
-  const router = makeActionRouter({ engine});
+  const router = makeActionRouter({ engine });
+  const tickEngine = makeTickEngine({ reader, writer, actions: router });
 
   return {
     reader,
