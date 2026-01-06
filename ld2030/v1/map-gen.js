@@ -185,7 +185,7 @@ function generateMap({
   const entries = Object.entries(histogram).sort((a, b) => b[1] - a[1]).slice(0, 10);
   const facilityCount = buildings.filter((b) => String(b?.id || '').startsWith('fac_')).length;
   const genericCount = buildings.length - facilityCount;
-  console.log('[map-gen] building type histogram', { top10: entries, total: buildings.length, facilityCount, genericCount });
+  //console.log('[map-gen] building type histogram', { top10: entries, total: buildings.length, facilityCount, genericCount });
 
   const mapMeta = {
     version: 1,
