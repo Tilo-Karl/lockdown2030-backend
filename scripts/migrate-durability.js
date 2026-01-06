@@ -116,7 +116,7 @@ async function migrateItemsCol({ db, gameId, dryRun }) {
 
     updated += 1;
     if (dryRun) {
-      console.log(`[DRY RUN] ${gameId}/items/${doc.id} patch ->`, patch);
+      // console.log(`[DRY RUN] ${gameId}/items/${doc.id} patch ->`, patch);
       continue;
     }
 
@@ -155,20 +155,20 @@ async function main() {
   }
 
   if (!gameIds.length) {
-    console.log('No games found to migrate.');
+    // console.log('No games found to migrate.');
     return;
   }
 
   for (const gameId of gameIds) {
-    console.log(`Migrating durability fields for game ${gameId}...`);
+    // console.log(`Migrating durability fields for game ${gameId}...`);
     const { updated } = await migrateItemsCol({ db, gameId, dryRun: opts.dryRun });
-    console.log(`Game ${gameId}: ${updated} item docs updated.`);
+    // console.log(`Game ${gameId}: ${updated} item docs updated.`);
   }
 
   if (opts.dryRun) {
-    console.log('Dry run complete. Re-run without --dry-run to apply changes.');
+    // console.log('Dry run complete. Re-run without --dry-run to apply changes.');
   } else {
-    console.log('Migration complete.');
+    // console.log('Migration complete.');
   }
 }
 
