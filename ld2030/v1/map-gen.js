@@ -137,38 +137,6 @@ function generateMap({
     ],
   };
 
-  const claimedBuildings = new Map(); // "x,y" -> { priority, building }
-
-  function tileKey(tile) {
-    const tx = Number.isFinite(tile?.x) ? Math.trunc(tile.x) : null;
-    const ty = Number.isFinite(tile?.y) ? Math.trunc(tile.y) : null;
-    if (tx == null || ty == null) return null;
-    return `${tx},${ty}`;
-  }
-
-  function buildingPriority(type) {
-    return facilityTypes.has(String(type)) ? 2 : 1;
-  }
-
-  function registerBuilding(building) {
-    const tile = (Array.isArray(building.tiles) && building.tiles[0]) || null;
-    const key = tileKey(tile);
-    if (!key) return false;
-
-    const priority = buildingPriority(building.type);
-    const existing = claimedBuildings.get(key);
-    if (existing) {
-      if (priority < existing.priority) return false;
-      if (priority === existing.priority) {
-        const prevId = String(existing.building?.id || '');
-        const nextId = String(building?.id || '');
-        if (nextId <= prevId) return false;
-      }
-    }
-    claimedBuildings.set(key, { priority, building });
-    return true;
-  }
-
   tilesByDistrict.forEach((tiles, districtId) => {
     const available = [...tiles];
     requiredPerDistrict.forEach((reqType) => {
@@ -177,7 +145,7 @@ function generateMap({
       const tile = available.splice(idx, 1)[0];
       if (!tile) return;
       const floors = floorsForType(reqType);
-      const building = {
+      buildings.push({
         id: `fac_${reqType}_${tile.x},${tile.y}`,
         type: reqType,
         root: { x: tile.x, y: tile.y },
@@ -185,8 +153,7 @@ function generateMap({
         tileCount: 1,
         floors,
         districtId,
-      };
-      if (registerBuilding(building)) buildings.push(building);
+      });
     });
 
     available.forEach((tile) => {
@@ -195,7 +162,7 @@ function generateMap({
       const baseType = pool[Math.floor(rndForBuildings() * pool.length)] || 'HOUSE';
       const baseFloors = floorsForType(baseType);
       const finalType = normalizeBuildingType(baseType, baseFloors);
-      const building = {
+      buildings.push({
         id: `g_${tile.x},${tile.y}`,
         type: finalType,
         root: { x: tile.x, y: tile.y },
@@ -203,8 +170,7 @@ function generateMap({
         tileCount: 1,
         floors: baseFloors,
         districtId,
-      };
-      if (registerBuilding(building)) buildings.push(building);
+      });
     });
   });
 
