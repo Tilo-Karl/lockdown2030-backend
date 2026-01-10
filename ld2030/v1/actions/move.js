@@ -42,10 +42,11 @@ module.exports = function registerMove(app, { actions, base } = {}) {
   app.post(`${BASE}/move`, async (req, res) => {
     try {
       const body = req.body || {};
-      const uid = String(body.uid || '').trim();
+      const entityId = String(body.entityId || '').trim();
       const gameId = String(body.gameId || 'lockdown2030').trim();
 
-      if (!uid) return res.status(400).json({ ok: false, error: 'uid_required' });
+      if (!entityId) return res.status(400).json({ ok: false, error: 'entityId_required' });
+      const uid = entityId;
 
       let target;
       try {
