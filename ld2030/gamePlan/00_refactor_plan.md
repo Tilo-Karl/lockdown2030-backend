@@ -1,5 +1,4 @@
 What went wrong (in one line)
-// test push for git
 writeDoorEdges() silently became “needs baseDoorHp injected”, but init-game.js didn’t inject it → runtime failure. That’s a module contract mismatch, not a “door bug”.
 
 So the systematic fix is: make contracts visible and enforceable.
